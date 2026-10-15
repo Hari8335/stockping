@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: catalog-service
+  mvc:
+    problemdetails:
+      enabled: true
+server:
+  port: ${PORT:8081}
+  shutdown: graceful
+  error:
+    include-message: never
+    include-stacktrace: never
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+logging:
+  level:
+    root: INFO
+  structured:
+    format:
+      console: ecs

@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package stockping.skeleton.v1;
+
+option java_package = "dev.stockping.contracts.skeleton.v1";
+option java_multiple_files = true;
+option go_package = "stockping.dev/messaging-service/gen/stockping/skeleton/v1;skeletonv1";
+
+// Generation-only probe. No deployed RPC or business API is introduced in Stage 0.
+// Later domain contracts will have their own versioned packages.
+service SkeletonProbe {
+  rpc Check(ProbeRequest) returns (ProbeResponse);
+}
+
+message ProbeRequest {
+  string message = 1;
+}
+
+message ProbeResponse {
+  string message = 1;
+}
+

@@ -1,0 +1,18 @@
+.env
+.env.*
+!.env.example
+**/target/
+**/node_modules/
+**/dist/
+**/coverage/
+messaging-service/bin/
+messaging-service/gen/
+.DS_Store
+.idea/
+*.iml
+*.log
+__pycache__/
+*.pyc
+# Preserve the pre-existing empty nested Git repository outside the application.
+/stockping/
+

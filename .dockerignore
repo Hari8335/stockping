@@ -1,0 +1,10 @@
+.git
+stockping
+.env
+**/target
+**/node_modules
+**/dist
+**/coverage
+messaging-service/gen
+**/*.log
+
