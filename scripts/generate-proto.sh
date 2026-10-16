@@ -8,5 +8,6 @@ docker run --rm --user "$(id -u):$(id -g)" \
     protoc -I contracts/proto \
       --go_out=messaging-service/gen --go_opt=paths=source_relative \
       --go-grpc_out=messaging-service/gen --go-grpc_opt=paths=source_relative \
-      contracts/proto/stockping/skeleton/v1/probe.proto'
+      contracts/proto/stockping/skeleton/v1/probe.proto \
+      contracts/proto/stockping/catalog/v1/catalog.proto'
 

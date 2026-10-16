@@ -4,13 +4,15 @@ COPY pom.xml ./
 COPY contracts/java/pom.xml contracts/java/pom.xml
 COPY catalog-service/pom.xml catalog-service/pom.xml
 COPY demand-service/pom.xml demand-service/pom.xml
+COPY contracts/proto contracts/proto
+COPY contracts/java/src contracts/java/src
 COPY catalog-service/src catalog-service/src
-RUN --mount=type=cache,id=stockping-maven,target=/root/.m2,sharing=locked mvn -B -ntp -pl catalog-service -am verify
+RUN --mount=type=cache,id=stockping-maven,target=/root/.m2,sharing=locked mvn -B -ntp -pl catalog-service -am verify -DexcludedGroups=postgres
 
 FROM eclipse-temurin:21-jre-alpine
 RUN apk add --no-cache curl && addgroup -S app && adduser -S app -G app
 WORKDIR /app
 COPY --from=build --chown=app:app /workspace/catalog-service/target/catalog-service-0.0.1-SNAPSHOT.jar app.jar
 USER app
-EXPOSE 8081
+EXPOSE 8081 9091
 ENTRYPOINT ["java", "-jar", "app.jar"]
