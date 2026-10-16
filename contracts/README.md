@@ -8,3 +8,11 @@ Run `mvn -B -ntp -pl contracts/java -am test` and `./scripts/generate-proto.sh` 
 
 Both language tests serialize `ProbeRequest(message="stockping")` to `0a0973746f636b70696e67`, decode that fixture, and verify the generated method is `stockping.skeleton.v1.SkeletonProbe/Check`. This verifies a shared wire format and stub compilation; runtime cross-service gRPC integration tests will be added with the Stage 1 server and subsequent clients.
 
+
+## Stage 1 Catalog contract
+
+[stockping/catalog/v1/catalog.proto](proto/stockping/catalog/v1/catalog.proto) defines unary `CatalogService.ResolveProductVariant` and `CatalogService.GetInventory`. Both Java and Go generation include it. Structured product name, brand, SKU and attributes resolve to MATCHED, NOT_FOUND or AMBIGUOUS; exact variant inventory comes only from Catalog. Candidates are bounded to 100 with total_matches supplied. No event or future Demand/Messaging RPC is added.
+
+Merchant UUID assertions are validated against the server's temporary configured merchant context. A mismatch or inaccessible inventory returns gRPC NOT_FOUND; invalid input returns INVALID_ARGUMENT. Authentication and trusted multi-merchant internal identity are deferred to Stage 2. Development gRPC is plaintext on the private local network and loopback-published port 9091.
+
+Java integration tests run a generated client against a real TCP server backed by PostgreSQL. The standalone [Go client](../scripts/catalog-grpc-check.go) uses 10-second deadlines to resolve a known SKU and retrieve stock, and is exercised by `python3 scripts/validate-catalog.py` against Compose. The Stage 0 probe wire tests remain unchanged. See the [Catalog guide](../docs/catalog.md) for full semantics and commands.
