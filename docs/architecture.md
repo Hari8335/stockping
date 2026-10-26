@@ -26,3 +26,15 @@ Future boundaries follow the SRS: Messaging → Demand gRPC; Demand → Catalog 
 - Keep frontend, Demand and Messaging business behavior unchanged. A standalone Go script validates generated client interoperability; it is not a production service client. RabbitMQ remains running infrastructure with no business producers/consumers.
 
 The [Catalog guide](catalog.md) documents the schema, ports, error/search semantics, temporary context and validation commands. [Stage 1 validation](stage-1-validation.md) records current evidence.
+
+## Stage 2 Demand slice
+
+Demand owns credentials and the new Flyway-managed Merchant, User, Customer, ConsentRecord, WaitlistRequest and DemandAudit tables. Each service still connects only to its own database. Shared contracts and shared JWT validation contain no persistence. Catalog has no credential table or login endpoint.
+
+The merchant logs in through Demand, then sends a short-lived HS256 JWT to either Spring REST API. The authenticated claim supplies merchant scope; Catalog's configured development provider has been replaced. Demand delegates the same signed identity over gRPC metadata; Catalog independently validates it and checks the merchant assertion. The exact-variant protobuf field is additive, and the existing Stage 1 search and inventory semantics remain intact.
+
+Manual waitlist creation locks the tenant-owned customer, verifies auditable consent, resolves an active exact Catalog variant and checks zero stock through generated gRPC calls. One deadline bounds both calls. PostgreSQL's partial unique index prevents duplicate active requests. Opt-out takes the same customer lock, appends history and suppresses every active row atomically. There are no cross-service foreign keys or distributed stock reservations.
+
+The React/MUI frontend provides login and a paginated/filterable waitlist with confirmed opt-out. Its bearer token stays in memory; reload requires login and logout deletes the token. Already-issued tokens expire naturally. Vite proxies local API calls to the correct service. Public deployment/TLS termination remains Stage 7.
+
+RabbitMQ remains running infrastructure. Messaging has no new business gRPC, WhatsApp, AI, restock events, notifications or delivery-status flow. See [Demand design and endpoints](demand.md) and [Stage 2 evidence](stage-2-validation.md).

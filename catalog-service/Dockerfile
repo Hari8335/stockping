@@ -1,6 +1,7 @@
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /workspace
 COPY pom.xml ./
+COPY shared-security shared-security
 COPY contracts/java/pom.xml contracts/java/pom.xml
 COPY catalog-service/pom.xml catalog-service/pom.xml
 COPY demand-service/pom.xml demand-service/pom.xml

@@ -15,6 +15,6 @@ abstract class PostgresTest {
         properties.add("spring.datasource.username", DATABASE::getUsername);
         properties.add("spring.datasource.password", DATABASE::getPassword);
         properties.add("catalog.grpc-port", () -> 0);
-        properties.add("catalog.demo-merchant-id", () -> "11111111-1111-1111-1111-111111111111");
+        properties.add("auth.jwt-secret", () -> TestTokens.SECRET);
     }
 }

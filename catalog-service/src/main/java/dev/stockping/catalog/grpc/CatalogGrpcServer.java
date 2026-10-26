@@ -12,14 +12,15 @@ import org.springframework.stereotype.Component;
 public class CatalogGrpcServer implements SmartLifecycle {
     private final CatalogGrpcService service;
     private final int port;
+    private final CatalogAuthenticationInterceptor authentication;
     private volatile Server server;
-    public CatalogGrpcServer(CatalogGrpcService service, @Value("${catalog.grpc-port}") int port) {
+    public CatalogGrpcServer(CatalogGrpcService service, CatalogAuthenticationInterceptor authentication, @Value("${catalog.grpc-port}") int port) {
         if (port < 0 || port > 65535) throw new IllegalArgumentException("Invalid gRPC port");
-        this.service = service; this.port = port;
+        this.service = service; this.port = port; this.authentication = authentication;
     }
     @Override public void start() {
         try {
-            server = NettyServerBuilder.forPort(port).maxInboundMessageSize(64 * 1024).addService(service).build().start();
+            server = NettyServerBuilder.forPort(port).maxInboundMessageSize(64 * 1024).addService(io.grpc.ServerInterceptors.intercept(service, authentication)).build().start();
         } catch (IOException e) { throw new IllegalStateException("Cannot start Catalog gRPC server",e); }
     }
     @Override public void stop() {

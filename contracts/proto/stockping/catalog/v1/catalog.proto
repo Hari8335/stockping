@@ -4,8 +4,8 @@ option java_package = "dev.stockping.contracts.catalog.v1";
 option java_multiple_files = true;
 option go_package = "stockping.dev/messaging-service/gen/stockping/catalog/v1;catalogv1";
 
-// Stage 1: private development transport. Merchant assertion must equal the
-// configured server context; this is not authentication. All calls are unary.
+// Bearer JWT metadata is required. merchant_id must match its signed identity.
+// All calls are unary. Local plaintext is restricted to the private development network.
 service CatalogService {
   rpc ResolveProductVariant(ResolveProductVariantRequest) returns (ResolveProductVariantResponse);
   rpc GetInventory(GetInventoryRequest) returns (GetInventoryResponse);
@@ -15,6 +15,7 @@ message ResolveProductVariantRequest {
   string product_name = 2; // Literal case-insensitive substring, not fuzzy matching.
   string brand = 3; // Case-insensitive equality.
   string sku = 4; // Case-sensitive equality, same semantics as SKU uniqueness.
+  string variant_id = 6; // Exact active variant lookup; mutually exclusive with search fields.
   map<string, string> attributes = 5; // Case-insensitive values; colour aliases color.
 }
 enum ResolutionStatus {

@@ -24,9 +24,13 @@ public class CatalogGrpcService extends CatalogServiceGrpc.CatalogServiceImplBas
     @Override public void resolveProductVariant(ResolveProductVariantRequest request, StreamObserver<ResolveProductVariantResponse> observer) {
         respond(observer, () -> {
             assertMerchant(request.getMerchantId());
-            if (request.getProductName().isBlank() && request.getBrand().isBlank() && request.getSku().isBlank() && request.getAttributesCount() == 0)
+            if (request.getVariantId().isBlank() && request.getProductName().isBlank() && request.getBrand().isBlank() && request.getSku().isBlank() && request.getAttributesCount() == 0)
                 throw new IllegalArgumentException("At least one lookup field is required");
-            var result = catalog.search(new VariantCriteria(optional(request.getProductName()), optional(request.getBrand()),
+            boolean exact = !request.getVariantId().isEmpty();
+            if (exact && (!request.getProductName().isEmpty() || !request.getBrand().isEmpty()
+                    || !request.getSku().isEmpty() || request.getAttributesCount() > 0))
+                throw new IllegalArgumentException("Exact identity and search fields are mutually exclusive");
+            var result = exact ? catalog.resolveExactVariant(parseId(request.getVariantId())) : catalog.search(new VariantCriteria(optional(request.getProductName()), optional(request.getBrand()),
                     optional(request.getSku()), CatalogStatus.ACTIVE, request.getAttributesMap()), 0, 100);
             var response = ResolveProductVariantResponse.newBuilder()
                     .setStatus(ResolutionStatus.valueOf(result.resolutionStatus().name())).setTotalMatches(result.totalMatches());
@@ -61,7 +65,7 @@ public class CatalogGrpcService extends CatalogServiceGrpc.CatalogServiceImplBas
             observer.onError(Status.INVALID_ARGUMENT.withDescription("Invalid request").asRuntimeException());
         }
         catch (Exception e) {
-            LOG.error("Unexpected Catalog RPC failure",e);
+            LOG.error("Unexpected Catalog RPC failure requestId={} type={}", CatalogAuthenticationInterceptor.REQUEST_ID.get(), e.getClass().getSimpleName());
             observer.onError(Status.INTERNAL.withDescription("An unexpected error occurred").asRuntimeException());
         }
     }

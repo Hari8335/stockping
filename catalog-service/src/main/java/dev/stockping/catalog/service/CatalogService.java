@@ -103,6 +103,13 @@ public class CatalogService {
         var resolution = total == 0 ? Resolution.NOT_FOUND : total == 1 ? Resolution.MATCHED : Resolution.AMBIGUOUS;
         return new SearchResult(resolution, result.getContent().stream().map(VariantView::from).toList(), total, page, size);
     }
+    public SearchResult resolveExactVariant(UUID id) {
+        var variant = variants.findByIdAndMerchantId(id, merchants.currentMerchantId());
+        if (variant.isEmpty() || variant.get().getStatus() != CatalogStatus.ACTIVE
+                || variant.get().getProduct().getStatus() != CatalogStatus.ACTIVE)
+            return new SearchResult(Resolution.NOT_FOUND, List.of(), 0, 0, 1);
+        return new SearchResult(Resolution.MATCHED, List.of(VariantView.from(variant.get())), 1, 0, 1);
+    }
     public InventoryView getInventory(UUID variantId) {
         return InventoryView.from(inventories.findByVariantIdAndMerchantId(variantId, merchants.currentMerchantId())
                 .orElseThrow(ResourceNotFoundException::new));

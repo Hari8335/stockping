@@ -27,7 +27,7 @@ def check_application_http(services):
                 assert "<title>StockPing</title>" in body, body
                 # The dev HTML must serve the React entry point as well.
                 with urllib.request.urlopen(f"http://127.0.0.1:{port}/src/App.tsx", timeout=10) as app:
-                    assert "The frontend is running" in app.read().decode()
+                    assert "Merchant waitlists" in app.read().decode()
             else:
                 assert json.loads(body)["status"] == "UP", body
         print(f"PASS {service} HTTP health")

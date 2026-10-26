@@ -14,6 +14,7 @@
   <packaging>pom</packaging>
   <modules>
     <module>contracts/java</module>
+    <module>shared-security</module>
     <module>catalog-service</module>
     <module>demand-service</module>
   </modules>

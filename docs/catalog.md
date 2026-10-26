@@ -1,6 +1,6 @@
-# Stage 1 Catalog and Inventory
+# Catalog and Inventory (Stage 2 authentication)
 
-Catalog owns products, exact variants, inventory and stock audit events in `catalog_db`. REST and gRPC call the same transactional application service. Demand, Messaging and the frontend retain their Stage 0 behavior. No RabbitMQ business event is published.
+Catalog owns products, exact variants, inventory and stock audit events in `catalog_db`. REST and gRPC call the same transactional application service. Demand now consumes Catalog gRPC, and the frontend authenticates through Demand. Messaging retains its Stage 0 behavior. No RabbitMQ business event is published.
 
 ## Domain and persistence
 
@@ -12,13 +12,11 @@ Flyway applies [V1__catalog_inventory.sql](../catalog-service/src/main/resources
 
 Products and variants deactivate through status updates; there is no DELETE endpoint. Inventory remains readable and manageable for inactive records. Active variant search and gRPC resolution exclude inactive variants and variants whose parent product is inactive.
 
-## Temporary merchant context
+## Authenticated merchant context
 
-`MerchantContextProvider` supplies ownership to all application operations. Stage 1's implementation reads the server-side `CATALOG_DEMO_MERCHANT_ID` UUID (default `11111111-1111-1111-1111-111111111111`). REST bodies cannot supply or change ownership; unknown JSON fields are rejected. A browser/query/header merchant identifier cannot change context. Repository reads and locked updates constrain by that server-derived merchant. Another merchant's UUID returns the same 404 as an absent resource.
+`MerchantContextProvider` derives ownership from validated JWT claims. Demand owns login and credentials; Catalog validates the same HS256 token with `AUTH_JWT_SECRET` and requires MERCHANT_ADMIN. No Catalog User table or separate login exists. The old configured demo provider was removed. Unknown JSON ownership fields are rejected; browser query/header IDs cannot override the principal. Inaccessible resources remain 404.
 
-The gRPC request must contain a canonical merchant UUID. It is an assertion checked against the same provider, not a way to select arbitrary tenants. Mismatched merchant assertions return NOT_FOUND. A correctly asserted merchant still cannot read a variant belonging to another merchant. Stage 2 can replace the context provider with authenticated context, and must establish trusted internal caller identity/context before accepting multi-merchant RPC traffic.
-
-This temporary provider is for a private local demo. REST has no authentication and gRPC uses plaintext within the development network. Compose publishes both on loopback. Do not expose these ports publicly. No Spring Security flow, Merchant entity or login endpoint exists yet.
+Every gRPC call requires `authorization: Bearer <token>` metadata. Catalog independently validates signature, expiry, issuer, audience and role, then checks that the request merchant UUID matches the signed identity. Repository operations still filter by merchant. Missing/invalid tokens return UNAUTHENTICATED, wrong roles PERMISSION_DENIED, and mismatched/inaccessible ownership NOT_FOUND. Local transport remains plaintext on the private development network and loopback ports; deployment requires TLS/HTTPS termination. See [Demand authentication and setup](demand.md).
 
 ## Inventory consistency
 
@@ -62,31 +60,32 @@ Pagination defaults to page 0, size 20; size is 1–100 and page is 0–1000000.
 Errors use `application/problem+json` with standard Problem Details fields plus `code`. Validation/malformed requests return 400 (`INVALID_REQUEST`); hidden/missing resources 404 (`NOT_FOUND`); duplicate tenant SKU 409 (`DUPLICATE_SKU`, including database-enforced races); other integrity conflicts 409 (`DATA_CONFLICT`); unsupported methods 405; unsupported media 415; unexpected failures 500 (`INTERNAL_ERROR`) with a sanitized message. Internal exceptions are logged server-side using existing ECS structured logging.
 
 ```sh
-# Use the returned IDs below.
-curl -i -H 'Content-Type: application/json' -d '{"name":"Galaxy S25 Ultra","brand":"Samsung","category":"Phones"}' http://localhost:8081/api/products
-curl -i -H 'Content-Type: application/json' -d '{"sku":"SAM-S25U-512-BLK","attributes":{"storage":"512GB","color":"Black"},"price":100.50}' http://localhost:8081/api/products/PRODUCT_ID/variants
-curl http://localhost:8081/api/variants/VARIANT_ID/inventory
-curl -X PATCH -H 'Content-Type: application/json' -d '{"quantity":5}' http://localhost:8081/api/variants/VARIANT_ID/inventory
-curl 'http://localhost:8081/api/variants/search?brand=Samsung&storage=512GB&color=Black&status=ACTIVE'
+# Set TOKEN to the accessToken returned by Demand login; use the returned IDs below.
+curl -i -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"name":"Galaxy S25 Ultra","brand":"Samsung","category":"Phones"}' http://localhost:8081/api/products
+curl -i -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"sku":"SAM-S25U-512-BLK","attributes":{"storage":"512GB","color":"Black"},"price":100.50}' http://localhost:8081/api/products/PRODUCT_ID/variants
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/variants/VARIANT_ID/inventory
+curl -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"quantity":5}' http://localhost:8081/api/variants/VARIANT_ID/inventory
+curl -H "Authorization: Bearer $TOKEN" 'http://localhost:8081/api/variants/search?brand=Samsung&storage=512GB&color=Black&status=ACTIVE'
 ```
 
 ## gRPC contract and validation
 
 [Catalog v1 protobuf](../contracts/proto/stockping/catalog/v1/catalog.proto) defines `stockping.catalog.v1.CatalogService`. REST and gRPC have separate listeners. gRPC defaults to port 9091 (`CATALOG_GRPC_PORT`). Both generated Java and Go messages/stubs are build artifacts.
 
-`ResolveProductVariant` takes merchant_id plus at least one structured lookup field: product_name, brand, sku or attributes. It returns MATCHED, NOT_FOUND or AMBIGUOUS, up to 100 candidates in UUID order, and total_matches. No-match resolution is a successful response with NOT_FOUND; ambiguity is never converted into a selected variant. Candidate data includes variant/product IDs, SKU, product name, brand and attributes.
+`ResolveProductVariant` takes merchant_id plus exact variant_id (new field 6), or at least one structured lookup field: product_name, brand, sku or attributes. Exact identity and search fields are mutually exclusive. It returns MATCHED, NOT_FOUND or AMBIGUOUS, up to 100 candidates in UUID order, and total_matches. No-match resolution is a successful response with NOT_FOUND; ambiguity is never converted into a selected variant. Candidate data includes variant/product IDs, SKU, product name, brand and attributes.
 
 `GetInventory` takes merchant_id and exact variant_id, returning authoritative quantity, availability_status and RFC 3339 UTC updated_at. Missing/cross-merchant variants and mismatched merchant assertions return gRPC NOT_FOUND. Invalid UUIDs or lookup fields return INVALID_ARGUMENT. Unexpected exceptions return sanitized INTERNAL. Server message size is bounded to 64 KiB and shutdown has a bounded grace period.
 
-The generated-code Java integration client and [Go validation client](../scripts/catalog-grpc-check.go) set deadlines. The Go client is a script only; no production Demand or Messaging service client is introduced.
+The generated-code Java integration client and [Go validation client](../scripts/catalog-grpc-check.go) set deadlines. The Go client remains validation-only. Demand now uses both RPCs with one configured overall deadline; Messaging business RPCs remain deferred.
 
 ```sh
 ./scripts/generate-proto.sh
 # Creates fresh demo data with REST, checks zero -> five, and runs both RPCs from Go.
 python3 scripts/validate-catalog.py
 
+# Set STOCKPING_TOKEN to a valid access token before using this validation client.
 # Validate an existing exact SKU with the generated Go client on Docker Desktop.
-docker run --rm -e GOCACHE=/tmp/go-build -e GOPATH=/tmp/go \
+docker run --rm -e STOCKPING_TOKEN -e GOCACHE=/tmp/go-build -e GOPATH=/tmp/go \
   -v "$PWD:/workspace:ro" -w /workspace/messaging-service stockping-proto-tools \
   go run /workspace/scripts/catalog-grpc-check.go \
   -target host.docker.internal:9091 \
