@@ -13,6 +13,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
+from validation_support import login
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -26,13 +27,15 @@ def main():
     catalog = services["catalog-service"]
     http_port = catalog["ports"][0]["published"]
     grpc_port = catalog["ports"][1]["published"]
-    merchant = catalog["environment"]["CATALOG_DEMO_MERCHANT_ID"]
+    session = login(services)
+    merchant = session["merchantId"]
+    token = session["accessToken"]
     base = f"http://127.0.0.1:{http_port}"
 
     def request(method, path, body=None, expected=200):
         req = urllib.request.Request(
             base + path, data=None if body is None else json.dumps(body).encode(),
-            headers={"Content-Type": "application/json"}, method=method,
+            headers={"Content-Type": "application/json", "Authorization": "Bearer " + token}, method=method,
         )
         try:
             response = urllib.request.urlopen(req, timeout=15)
@@ -67,11 +70,11 @@ def main():
     network = ["--network", "host"] if linux else []
     subprocess.run([
         "docker", "run", "--rm", *network, "--user", f"{os.getuid()}:{os.getgid()}",
-        "-e", "GOCACHE=/tmp/go-build", "-e", "GOPATH=/tmp/go",
+        "-e", "GOCACHE=/tmp/go-build", "-e", "GOPATH=/tmp/go", "-e", "STOCKPING_TOKEN",
         "-v", f"{ROOT}:/workspace:ro", "-w", "/workspace/messaging-service", "stockping-proto-tools",
         "go", "run", "/workspace/scripts/catalog-grpc-check.go", "-target", target,
         "-merchant", merchant, "-sku", sku, "-quantity", "5",
-    ], check=True, timeout=600)
+    ], check=True, timeout=600, env={**os.environ, "STOCKPING_TOKEN": token})
 
 
 if __name__ == "__main__":

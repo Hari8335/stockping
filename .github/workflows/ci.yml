@@ -27,13 +27,15 @@ jobs:
         run: ./scripts/test.sh
       - name: Start local environment
         run: |
-          cp .env.example .env
+          python3 scripts/init-local-env.py
           docker compose config --quiet
           docker compose up --build --wait --wait-timeout 180
       - name: Verify service health, database isolation, and broker
         run: python3 scripts/smoke-test.py
       - name: Verify Catalog REST and generated-code gRPC client
         run: python3 scripts/validate-catalog.py
+      - name: Verify authenticated Demand flow and Catalog outage
+        run: python3 scripts/validate-demand.py
       - name: Show service state on failure
         if: failure()
         run: |

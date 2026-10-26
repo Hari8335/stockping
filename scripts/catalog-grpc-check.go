@@ -10,12 +10,13 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	catalogv1 "stockping.dev/messaging-service/gen/stockping/catalog/v1"
 )
 
 func main() {
 	target := flag.String("target", "host.docker.internal:9091", "private development gRPC address")
-	merchant := flag.String("merchant", "11111111-1111-1111-1111-111111111111", "server-configured merchant assertion")
+	merchant := flag.String("merchant", "11111111-1111-1111-1111-111111111111", "authenticated merchant assertion")
 	sku := flag.String("sku", "", "exact known SKU")
 	quantity := flag.Int("quantity", 5, "expected authoritative quantity")
 	flag.Parse()
@@ -32,7 +33,8 @@ func check(target, merchant, sku string, quantity int) error {
 	}
 	defer conn.Close()
 	client := catalogv1.NewCatalogServiceClient(conn)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	authenticated := metadata.AppendToOutgoingContext(context.Background(), "authorization", "Bearer "+os.Getenv("STOCKPING_TOKEN"))
+	ctx, cancel := context.WithTimeout(authenticated, 10*time.Second)
 	defer cancel()
 	resolved, err := client.ResolveProductVariant(ctx, &catalogv1.ResolveProductVariantRequest{MerchantId: merchant, Sku: sku})
 	if err != nil {
@@ -42,7 +44,7 @@ func check(target, merchant, sku string, quantity int) error {
 		return fmt.Errorf("expected one exact match, got %s (%d matches)", resolved.Status, resolved.TotalMatches)
 	}
 	variant := resolved.Candidates[0]
-	inventoryCtx, inventoryCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	inventoryCtx, inventoryCancel := context.WithTimeout(authenticated, 10*time.Second)
 	defer inventoryCancel()
 	inventory, err := client.GetInventory(inventoryCtx, &catalogv1.GetInventoryRequest{MerchantId: merchant, VariantId: variant.VariantId})
 	if err != nil {

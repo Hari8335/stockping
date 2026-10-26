@@ -1,6 +1,31 @@
 spring:
   application:
     name: demand-service
+  datasource:
+    url: ${DEMAND_DB_URL:jdbc:postgresql://localhost:5434/demand_db}
+    username: ${DEMAND_DB_USER:demand_user}
+    password: ${DEMAND_DB_PASSWORD:}
+    hikari:
+      connection-timeout: 5000
+      data-source-properties:
+        socketTimeout: 10
+        options: "-c lock_timeout=5000 -c statement_timeout=15000"
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      jakarta.persistence.query.timeout: 10000
+      jakarta.persistence.lock.timeout: 10000
+  jackson:
+    datatype:
+      enum:
+        fail-on-numbers-for-enums: true
+    deserialization:
+      fail-on-unknown-properties: true
+      fail-on-null-for-primitives: true
+      accept-float-as-int: false
+      fail-on-trailing-tokens: true
   mvc:
     problemdetails:
       enabled: true
@@ -21,6 +46,21 @@ management:
 logging:
   level:
     root: INFO
+    org.hibernate.orm.jdbc.error: OFF
   structured:
     format:
       console: ecs
+
+catalog:
+  grpc-host: ${CATALOG_GRPC_HOST:localhost}
+  grpc-port: ${CATALOG_GRPC_PORT:9091}
+  grpc-timeout-ms: ${CATALOG_GRPC_TIMEOUT_MS:2000}
+  grpc-tls: ${CATALOG_GRPC_TLS:false}
+auth:
+  login-enabled: true
+  jwt-secret: ${AUTH_JWT_SECRET}
+  jwt-expiry-seconds: ${AUTH_JWT_EXPIRY_SECONDS:1800}
+demo:
+  merchant-id: ${DEMO_MERCHANT_ID:11111111-1111-1111-1111-111111111111}
+  admin-email: ${DEMO_ADMIN_EMAIL:admin@demo.stockping.local}
+  admin-password: ${DEMO_ADMIN_PASSWORD:}

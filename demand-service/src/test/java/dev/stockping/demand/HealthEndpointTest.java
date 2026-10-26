@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class HealthEndpointTest {
+class HealthEndpointTest extends PostgresTest {
     @LocalServerPort
     private int port;
 
@@ -27,14 +27,17 @@ class HealthEndpointTest {
 
     @Test
     void configurationEndpointsAreNotExposed() throws Exception {
-        assertEquals(404, get("/actuator/env").statusCode());
+        assertEquals(401, get("/actuator/env").statusCode());
+        assertEquals(404, get("/actuator/env", TestTokens.token(java.util.UUID.randomUUID())).statusCode());
     }
 
-    private HttpResponse<String> get(String path) throws Exception {
+    private HttpResponse<String> get(String path) throws Exception { return get(path, null); }
+    private HttpResponse<String> get(String path, String token) throws Exception {
         try (var client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()) {
             var request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
-                    .timeout(Duration.ofSeconds(30)).GET().build();
-            return client.send(request, HttpResponse.BodyHandlers.ofString());
+                    .timeout(Duration.ofSeconds(30)).GET();
+            if (token != null) request.header("Authorization", "Bearer " + token);
+            return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
         }
     }
 }

@@ -40,8 +40,12 @@ class CatalogIntegrationTest extends PostgresTest {
         http.close(); channel.shutdownNow(); assertTrue(channel.awaitTermination(5,TimeUnit.SECONDS));
     }
     HttpResponse<String> call(String method, String path, String json) throws Exception {
+        return callAs(TestTokens.token(A), method, path, json);
+    }
+    HttpResponse<String> callAs(String token, String method, String path, String json) throws Exception {
         var builder = HttpRequest.newBuilder(URI.create("http://localhost:"+port+path)).timeout(Duration.ofSeconds(15));
         builder.header("Content-Type","application/json");
+        if (token != null) builder.header("Authorization", "Bearer " + token);
         builder.method(method,json == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(json));
         return http.send(builder.build(),HttpResponse.BodyHandlers.ofString());
     }
@@ -68,7 +72,10 @@ class CatalogIntegrationTest extends PostgresTest {
         assertFalse(response.body().contains("stackTrace"));
     }
     CatalogServiceGrpc.CatalogServiceBlockingStub client() {
-        return CatalogServiceGrpc.newBlockingStub(channel).withDeadlineAfter(10,TimeUnit.SECONDS);
+        var metadata = new Metadata();
+        metadata.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer " + TestTokens.token(A));
+        return CatalogServiceGrpc.newBlockingStub(channel)
+                .withInterceptors(io.grpc.stub.MetadataUtils.newAttachHeadersInterceptor(metadata)).withDeadlineAfter(10,TimeUnit.SECONDS);
     }
     ResolveProductVariantRequest resolve(String sku) {
         return ResolveProductVariantRequest.newBuilder().setMerchantId(A.toString()).setSku(sku).build();
@@ -246,4 +253,48 @@ class CatalogIntegrationTest extends PostgresTest {
         assertEquals(audit.get(0).getNewQuantity(),audit.get(1).getPreviousQuantity());
         assertEquals(audit.get(1).getNewQuantity(),inventories.findByVariantIdAndMerchantId(UUID.fromString(v),A).orElseThrow().getQuantity());
     }
+    @Test void restRequiresValidMerchantAdministratorToken() throws Exception {
+        assertError(401, callAs(null, "GET", "/api/products", null));
+        assertError(401, callAs("invalid", "GET", "/api/products", null));
+        assertError(401, callAs(TestTokens.token(A, "MERCHANT_ADMIN", -30), "GET", "/api/products", null));
+        assertError(403, callAs(TestTokens.token(A, "OTHER", 300), "GET", "/api/products", null));
+        assertEquals(200, call("GET", "/api/products", null).statusCode());
+    }
+    @Test void signedSecondTenantWorksWithoutChangingServerConfiguration() throws Exception {
+        var other = seedOtherMerchant();
+        var response = callAs(TestTokens.token(B), "GET", "/api/variants/" + other.getId() + "/inventory", null);
+        assertEquals(200, response.statusCode(), response.body());
+        var headers = new Metadata();
+        headers.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer " + TestTokens.token(B));
+        var clientB = CatalogServiceGrpc.newBlockingStub(channel)
+                .withInterceptors(io.grpc.stub.MetadataUtils.newAttachHeadersInterceptor(headers)).withDeadlineAfter(5, TimeUnit.SECONDS);
+        var exact = ResolveProductVariantRequest.newBuilder().setMerchantId(B.toString()).setVariantId(other.getId().toString()).build();
+        assertEquals(ResolutionStatus.MATCHED, clientB.resolveProductVariant(exact).getStatus());
+        assertEquals(ResolutionStatus.NOT_FOUND, client().resolveProductVariant(exact.toBuilder().setMerchantId(A.toString()).build()).getStatus());
+        assertGrpc(Status.Code.NOT_FOUND, () -> client().resolveProductVariant(exact));
+        assertEquals(0, clientB.getInventory(GetInventoryRequest.newBuilder().setMerchantId(B.toString()).setVariantId(other.getId().toString()).build()).getQuantity());
+    }
+    @Test void grpcRejectsAnonymousInvalidExpiredAndWrongRole() {
+        var anonymous = CatalogServiceGrpc.newBlockingStub(channel).withDeadlineAfter(5, TimeUnit.SECONDS);
+        assertGrpc(Status.Code.UNAUTHENTICATED, () -> anonymous.resolveProductVariant(resolve("ANY")));
+        for (String token : List.of("invalid", TestTokens.token(A, "MERCHANT_ADMIN", -30))) {
+            var headers = new Metadata();
+            headers.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer " + token);
+            var invalid = anonymous.withInterceptors(io.grpc.stub.MetadataUtils.newAttachHeadersInterceptor(headers));
+            assertGrpc(Status.Code.UNAUTHENTICATED, () -> invalid.resolveProductVariant(resolve("ANY")));
+        }
+        var headers = new Metadata();
+        headers.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer " + TestTokens.token(A, "OTHER", 300));
+        var forbidden = anonymous.withInterceptors(io.grpc.stub.MetadataUtils.newAttachHeadersInterceptor(headers));
+        assertGrpc(Status.Code.PERMISSION_DENIED, () -> forbidden.resolveProductVariant(resolve("ANY")));
+    }
+    @Test void exactResolutionRejectsInactiveAndMixedCriteria() throws Exception {
+        String variant = createVariant(createProduct(), "EXACT", "512GB", "Black");
+        var exact = ResolveProductVariantRequest.newBuilder().setMerchantId(A.toString()).setVariantId(variant).build();
+        assertEquals(ResolutionStatus.MATCHED, client().resolveProductVariant(exact).getStatus());
+        assertGrpc(Status.Code.INVALID_ARGUMENT, () -> client().resolveProductVariant(exact.toBuilder().setSku("EXACT").build()));
+        call("PATCH", "/api/variants/" + variant, "{\"status\":\"INACTIVE\"}");
+        assertEquals(ResolutionStatus.NOT_FOUND, client().resolveProductVariant(exact).getStatus());
+    }
+
 }

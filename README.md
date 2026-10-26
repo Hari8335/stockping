@@ -2,13 +2,13 @@
 
 StockPing is a software engineering portfolio project for capturing retail demand through WhatsApp and notifying consenting customers when an exact product variant returns to stock.
 
-**Current implementation: Stage 1 — Catalog, Inventory and gRPC.** Catalog supports tenant-scoped product/variant management, deterministic search, authoritative inventory with transactional stock audits, and a real gRPC server. The frontend, Demand and Messaging retain their Stage 0 behavior. Authentication and RabbitMQ business events remain deferred. See the [Catalog contract and setup](docs/catalog.md) and [Stage 1 validation](docs/stage-1-validation.md). The supplied [StockPing SRS v1.1](docs/StockPing_SRS_v1.1.docx) defines the project baseline and incremental stages.
+**Current implementation: Stage 2 — Demand slice.** Merchant administrators can authenticate, view tenant-scoped waitlists, and record opt-out. Demand stores customers and auditable consent, prevents duplicate active requests, and verifies exact variants/zero stock through Catalog gRPC. Catalog REST and gRPC now require signed merchant identity. Messaging remains its Stage 0 skeleton, and RabbitMQ remains infrastructure only. See the [Demand guide](docs/demand.md), [Catalog guide](docs/catalog.md), and [Stage 2 validation](docs/stage-2-validation.md). The supplied [StockPing SRS v1.1](docs/StockPing_SRS_v1.1.docx) defines the baseline and staged boundaries.
 
 ## Architecture and technologies
 
 The planned system has three backend services. Catalog owns products and authoritative inventory; Demand owns merchant authentication, customers, consent and waitlists; Messaging owns WhatsApp transport and delivery state. React + TypeScript + Material UI provides the merchant interface.
 
-Browser/external boundaries use HTTP/REST. Internal synchronous calls will use gRPC/Protocol Buffers (Messaging → Demand → Catalog). Asynchronous events will use RabbitMQ. One PostgreSQL server hosts three service-owned databases. Catalog connects only to catalog_db and serves REST plus gRPC. Demand and Messaging have no database/broker business integration yet. RabbitMQ remains infrastructure only.
+Browser/external boundaries use HTTP/REST. Demand → Catalog uses gRPC/Protocol Buffers; Messaging → Demand remains a later stage. Asynchronous events will use RabbitMQ. One PostgreSQL server hosts three service-owned databases. Catalog connects only to catalog_db and serves REST plus gRPC. Demand connects only to demand_db; Messaging has no database/broker business integration yet. RabbitMQ remains infrastructure only.
 
 The skeleton uses Java 21, Spring Boot 4.1.1, Maven, Go 1.26.8, Node.js 24, Vite, PostgreSQL 18 and RabbitMQ 4 management. [Architecture decisions](docs/architecture.md) explain the shared contracts, service boundaries and database isolation.
 
@@ -18,6 +18,7 @@ stockping/
 ├── catalog-service/           # Spring Boot app and HTTP integration tests
 ├── demand-service/            # Spring Boot app and HTTP integration tests
 ├── messaging-service/         # Go cmd/, internal/, generated gen/ (ignored)
+├── shared-security/           # Shared JWT validation; no persistence or credentials
 ├── contracts/
 │   ├── proto/                 # Versioned protobuf/gRPC source of truth
 │   ├── java/                  # Generated Java contract library and wire test
@@ -45,14 +46,13 @@ The pre-existing empty `stockping/.git` nested directory is not part of the appl
 ## Start locally
 
 ```sh
-cp .env.example .env
-chmod 600 .env
+python3 scripts/init-local-env.py
 docker compose config --quiet
 docker compose up --build --wait --wait-timeout 180
 python3 scripts/smoke-test.py
 ```
 
-The example passwords are local development examples. Set private values in the ignored `.env`. Do not publish that file or resolved Compose configuration. All published ports bind to loopback. Images run application processes as unprivileged users. Initial builds run unit/contract tests and can take several minutes. Run `./scripts/test.sh` for the full PostgreSQL-backed integration suite.
+The demo login email/password are in the private ignored `.env`; open http://localhost:5173 to sign in. The initializer generates a signing key and demo password without printing them. Other example passwords are local development examples. Set private values in the ignored `.env`. Do not publish that file or resolved Compose configuration. All published ports bind to loopback. Images run application processes as unprivileged users. Initial builds run unit/contract tests and can take several minutes. Run `./scripts/test.sh` for the full PostgreSQL-backed integration suite.
 
 To start infrastructure alone:
 
@@ -68,7 +68,7 @@ docker compose logs --tail 100
 docker compose down
 ```
 
-Named volumes preserve PostgreSQL and RabbitMQ data across restarts. Database creation scripts run only on the first initialization of an empty PostgreSQL volume. Changing passwords in `.env` does not change existing database roles; use SQL to rotate them or deliberately reset a disposable local volume. Catalog runs Flyway migrations on startup and Hibernate validates the resulting schema. Other service databases remain empty. The migration and tenant constraints are documented in the [Catalog guide](docs/catalog.md).
+Named volumes preserve PostgreSQL and RabbitMQ data across restarts. Database creation scripts run only on the first initialization of an empty PostgreSQL volume. Changing passwords in `.env` does not change existing database roles; use SQL to rotate them or deliberately reset a disposable local volume. Catalog and Demand run Flyway migrations on startup and Hibernate validates both schemas. Messaging database remains empty. The migration and tenant constraints are documented in the [Catalog guide](docs/catalog.md).
 
 ## Ports and health checks
 
@@ -91,13 +91,13 @@ Build Java from the repository root, then run either jar in its own terminal:
 
 ```sh
 mvn -B -ntp verify
-# Catalog requires the infrastructure database and its password in the environment.
-# Set CATALOG_DB_PASSWORD from your private .env; default URL is localhost:5434/catalog_db.
+# Export AUTH_JWT_SECRET for both services and each service database password.
+# Native Java does not load root .env automatically; see docs/demand.md.
 java -jar catalog-service/target/catalog-service-0.0.1-SNAPSHOT.jar
 java -jar demand-service/target/demand-service-0.0.1-SNAPSHOT.jar
 ```
 
-To build just one service: `mvn -B -ntp -pl catalog-service -am verify` (or `demand-service`). Override its HTTP port with `PORT=9001 java -jar ...`. Catalog also serves the Stage 1 REST/gRPC contracts. Only Actuator health is exposed for operations; environment/configuration endpoints remain hidden. Native Catalog accepts `CATALOG_DB_URL`, `CATALOG_DB_USER`, `CATALOG_DB_PASSWORD`, `CATALOG_DEMO_MERCHANT_ID` and `CATALOG_GRPC_PORT`. The temporary merchant provider is a local development mechanism, documented in the [Catalog guide](docs/catalog.md).
+To build just one service: `mvn -B -ntp -pl catalog-service -am verify` (or `demand-service`). Override its HTTP port with `PORT=9001 java -jar ...`. Catalog also serves the Stage 1 REST/gRPC contracts. Only Actuator health is exposed for operations; environment/configuration endpoints remain hidden. Native Catalog accepts `CATALOG_DB_URL`, `CATALOG_DB_USER`, `CATALOG_DB_PASSWORD`, `AUTH_JWT_SECRET` and `CATALOG_GRPC_PORT`. Merchant identity comes from a validated token. Demand configuration and the explicit demo profile are documented in the [Demand guide](docs/demand.md).
 
 ```sh
 cd frontend
@@ -133,9 +133,10 @@ The Go command builds a tool image with protoc 4.36.2, protoc-gen-go 1.36.12 and
 # Infrastructure/HTTP checks against the running Compose environment.
 python3 scripts/smoke-test.py
 python3 scripts/validate-catalog.py
+python3 scripts/validate-demand.py
 ```
 
-Go tests include configuration validation, actual HTTP health/error requests, and generated contract compatibility; the runner also checks formatting, `go vet`, the race detector and compilation. Java integration tests use disposable PostgreSQL 18 and real HTTP/gRPC servers. They test CRUD, inventory transitions/audits, concurrency/rollback, validation, tenant isolation and the preserved health/configuration boundaries. The frontend test checks the rendered placeholder. The Compose test checks all application boundaries, three owned PostgreSQL connections, all six denied cross-service database connections, and authenticated RabbitMQ management access.
+Go tests include configuration validation, actual HTTP health/error requests, and generated contract compatibility; the runner also checks formatting, `go vet`, the race detector and compilation. Java integration tests use disposable PostgreSQL 18 and real HTTP/gRPC servers. They test CRUD, inventory transitions/audits, concurrency/rollback, validation, tenant isolation and the preserved health/configuration boundaries. Frontend tests cover login, waitlist states, filtering, logout, expiry and confirmed opt-out. The Compose test checks all application boundaries, three owned PostgreSQL connections, all six denied cross-service database connections, and authenticated RabbitMQ management access.
 
-GitHub Actions runs these checks on push/PR, including a full Compose startup. Catalog business logic, repositories, REST and gRPC are covered in Stage 1. RabbitMQ, authentication and provider workflows await their implementation stages. [Engineering requirements](docs/engineering-quality.md) define the feature-specific test gates for subsequent stages. [Stage 0 evidence](docs/stage-0-validation.md) is preserved; [Stage 1 evidence](docs/stage-1-validation.md) records the Catalog slice.
+GitHub Actions runs these checks on push/PR, including a full Compose startup. Catalog regressions remain covered; Stage 2 adds JWT security, Demand persistence/concurrency, consent, tenant isolation and a real gRPC client. RabbitMQ business events and provider workflows await their stages. [Engineering requirements](docs/engineering-quality.md) define the feature-specific test gates for subsequent stages. [Stage 0 evidence](docs/stage-0-validation.md) is preserved; [Stage 1 evidence](docs/stage-1-validation.md) records the Catalog slice; [Stage 2 evidence](docs/stage-2-validation.md) records Demand.
 
