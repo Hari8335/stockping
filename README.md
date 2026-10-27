@@ -2,13 +2,13 @@
 
 StockPing is a software engineering portfolio project for capturing retail demand through WhatsApp and notifying consenting customers when an exact product variant returns to stock.
 
-**Current implementation: Stage 2 — Demand slice.** Merchant administrators can authenticate, view tenant-scoped waitlists, and record opt-out. Demand stores customers and auditable consent, prevents duplicate active requests, and verifies exact variants/zero stock through Catalog gRPC. Catalog REST and gRPC now require signed merchant identity. Messaging remains its Stage 0 skeleton, and RabbitMQ remains infrastructure only. See the [Demand guide](docs/demand.md), [Catalog guide](docs/catalog.md), and [Stage 2 validation](docs/stage-2-validation.md). The supplied [StockPing SRS v1.1](docs/StockPing_SRS_v1.1.docx) defines the baseline and staged boundaries.
+**Current implementation: Stage 3 — WhatsApp + Go/gRPC integration; real-provider acceptance pending.** Messaging validates signed Cloud API webhooks, persists/deduplicates messages, calls authenticated Demand gRPC, and sends immediate replies. Demand supports `HELP`, `STOP`, and `STOCK <exact SKU>` through Catalog gRPC. Existing auth, consent, waitlists and frontend remain. See the [Messaging guide](docs/messaging.md), [Stage 3 validation](docs/stage-3-validation.md), [Demand guide](docs/demand.md), and [Catalog guide](docs/catalog.md). The [StockPing SRS v1.1](docs/StockPing_SRS_v1.1.docx) defines the baseline and staged boundaries.
 
 ## Architecture and technologies
 
-The planned system has three backend services. Catalog owns products and authoritative inventory; Demand owns merchant authentication, customers, consent and waitlists; Messaging owns WhatsApp transport and delivery state. React + TypeScript + Material UI provides the merchant interface.
+The system has three backend services. Catalog owns products and authoritative inventory; Demand owns merchant authentication, customers, consent and waitlists; Messaging owns WhatsApp transport and delivery state. React + TypeScript + Material UI provides the merchant interface.
 
-Browser/external boundaries use HTTP/REST. Demand → Catalog uses gRPC/Protocol Buffers; Messaging → Demand remains a later stage. Asynchronous events will use RabbitMQ. One PostgreSQL server hosts three service-owned databases. Catalog connects only to catalog_db and serves REST plus gRPC. Demand connects only to demand_db; Messaging has no database/broker business integration yet. RabbitMQ remains infrastructure only.
+Browser/external boundaries use HTTP/REST. Messaging → Demand and Demand → Catalog use generated gRPC/Protocol Buffers with authenticated internal calls. One PostgreSQL server hosts three service-owned databases: catalog_db, demand_db and messaging_db. RabbitMQ remains infrastructure only; business events are deferred to Stage 4.
 
 The skeleton uses Java 21, Spring Boot 4.1.1, Maven, Go 1.26.8, Node.js 24, Vite, PostgreSQL 18 and RabbitMQ 4 management. [Architecture decisions](docs/architecture.md) explain the shared contracts, service boundaries and database isolation.
 
@@ -68,7 +68,7 @@ docker compose logs --tail 100
 docker compose down
 ```
 
-Named volumes preserve PostgreSQL and RabbitMQ data across restarts. Database creation scripts run only on the first initialization of an empty PostgreSQL volume. Changing passwords in `.env` does not change existing database roles; use SQL to rotate them or deliberately reset a disposable local volume. Catalog and Demand run Flyway migrations on startup and Hibernate validates both schemas. Messaging database remains empty. The migration and tenant constraints are documented in the [Catalog guide](docs/catalog.md).
+Named volumes preserve PostgreSQL and RabbitMQ data across restarts. Database creation scripts run only on the first initialization of an empty PostgreSQL volume. Changing passwords in `.env` does not change existing database roles; use SQL to rotate them or deliberately reset a disposable local volume. Catalog and Demand run Flyway migrations on startup and Hibernate validates both schemas. Messaging applies embedded numbered, checksum-verified SQL migrations to its own database. The migration and tenant constraints are documented in the [Catalog guide](docs/catalog.md).
 
 ## Ports and health checks
 
@@ -77,7 +77,8 @@ Named volumes preserve PostgreSQL and RabbitMQ data across restarts. Database cr
 | Frontend | 5173 | http://localhost:5173/ |
 | Catalog REST | 8081 | http://localhost:8081/actuator/health |
 | Catalog gRPC | 9091 | `stockping.catalog.v1.CatalogService` |
-| Demand | 8082 | http://localhost:8082/actuator/health |
+| Demand gRPC | Private container port 9092 | `stockping.demand.v1.DemandService` |
+| Demand REST | 8082 | http://localhost:8082/actuator/health |
 | Messaging | 8083 | http://localhost:8083/health |
 | PostgreSQL | 5434 | `docker compose exec postgres pg_isready` with configured user/database |
 | RabbitMQ AMQP | 5673 | Container `rabbitmq-diagnostics -q ping` |
@@ -134,9 +135,14 @@ The Go command builds a tool image with protoc 4.36.2, protoc-gen-go 1.36.12 and
 python3 scripts/smoke-test.py
 python3 scripts/validate-catalog.py
 python3 scripts/validate-demand.py
+python3 scripts/validate-messaging.py
 ```
 
 Go tests include configuration validation, actual HTTP health/error requests, and generated contract compatibility; the runner also checks formatting, `go vet`, the race detector and compilation. Java integration tests use disposable PostgreSQL 18 and real HTTP/gRPC servers. They test CRUD, inventory transitions/audits, concurrency/rollback, validation, tenant isolation and the preserved health/configuration boundaries. Frontend tests cover login, waitlist states, filtering, logout, expiry and confirmed opt-out. The Compose test checks all application boundaries, three owned PostgreSQL connections, all six denied cross-service database connections, and authenticated RabbitMQ management access.
 
-GitHub Actions runs these checks on push/PR, including a full Compose startup. Catalog regressions remain covered; Stage 2 adds JWT security, Demand persistence/concurrency, consent, tenant isolation and a real gRPC client. RabbitMQ business events and provider workflows await their stages. [Engineering requirements](docs/engineering-quality.md) define the feature-specific test gates for subsequent stages. [Stage 0 evidence](docs/stage-0-validation.md) is preserved; [Stage 1 evidence](docs/stage-1-validation.md) records the Catalog slice; [Stage 2 evidence](docs/stage-2-validation.md) records Demand.
+GitHub Actions runs these checks on push/PR, including a full Compose startup. Catalog regressions remain covered; Stage 2 adds JWT security, Demand persistence/concurrency, consent, tenant isolation and a real gRPC client. Stage 3 adds signed webhook, PostgreSQL duplicate/concurrency, provider-adapter and real Go → Java validation. RabbitMQ business events remain deferred. [Engineering requirements](docs/engineering-quality.md) define the feature-specific test gates for subsequent stages. [Stage 0 evidence](docs/stage-0-validation.md) is preserved; [Stage 1 evidence](docs/stage-1-validation.md) records the Catalog slice; [Stage 2 evidence](docs/stage-2-validation.md) records Demand.
 
+
+## WhatsApp setup
+
+Provider integration is disabled until official Cloud API credentials, channel IDs, an explicit Graph version and trusted merchant mapping are set in ignored `.env`. The initializer generates separate internal service credentials. Real acceptance needs an official number and temporary HTTPS callback ending `/webhooks/whatsapp`. Follow the [Messaging setup procedure](docs/messaging.md#real-whatsapp-acceptance-procedure). Automated tests and the local validator require no Meta credentials.

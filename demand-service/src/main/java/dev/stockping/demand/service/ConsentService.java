@@ -40,11 +40,16 @@ public class ConsentService {
 
     @Transactional
     public ConsentView change(UUID customerId, ConsentStatus status) {
-        UUID merchant = Identity.current().merchantId();
+        return changeForMerchant(Identity.current().merchantId(), customerId, status, "MANUAL_API");
+    }
+
+    /** Internal application entry point; caller authenticates and establishes merchant scope. */
+    @Transactional
+    public ConsentView changeForMerchant(UUID merchant, UUID customerId, ConsentStatus status, String source) {
         Customer customer = customers.lockOwned(merchant, customerId);
         if (status == ConsentStatus.OPT_IN && customer.getStatus() != AccountStatus.ACTIVE)
             throw new DemandException(409, "CUSTOMER_INACTIVE", "Customer is inactive");
-        var record = capture(customer, status);
+        var record = capture(customer, status, source);
         int changed = 0;
         if (status == ConsentStatus.OPT_OUT) {
             var active = waitlists.findByMerchantIdAndCustomerIdAndStatusIn(merchant, customerId, WaitlistStatus.ACTIVE);
@@ -55,8 +60,12 @@ public class ConsentService {
     }
 
     private ConsentRecord capture(Customer customer, ConsentStatus status) {
-        var record = records.saveAndFlush(new ConsentRecord(customer.getMerchantId(), customer.getId(), status));
-        audits.save(new DemandAudit(customer.getMerchantId(), status.name(), customer.getId(), Map.of("source", "MANUAL_API")));
+        return capture(customer, status, "MANUAL_API");
+    }
+
+    private ConsentRecord capture(Customer customer, ConsentStatus status, String source) {
+        var record = records.saveAndFlush(new ConsentRecord(customer.getMerchantId(), customer.getId(), status, source));
+        audits.save(new DemandAudit(customer.getMerchantId(), status.name(), customer.getId(), Map.of("source", source)));
         return record;
     }
 }

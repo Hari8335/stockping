@@ -122,7 +122,9 @@ class DemandIntegrationTest extends PostgresTest {
         error(401, "UNAUTHENTICATED", call(null, "GET", "/api/waitlists", null));
     }
     @Test void cleanMigrationAndDomainPersistence() throws Exception {
-        assertEquals(1, jdbc.queryForObject("select count(*) from flyway_schema_history where success", Integer.class));
+        assertEquals(1, jdbc.queryForObject("select count(*) from flyway_schema_history where success and version='1'", Integer.class));
+        assertEquals(1, jdbc.queryForObject("select count(*) from flyway_schema_history where success and version='2'", Integer.class));
+        assertEquals(2, jdbc.queryForObject("select count(*) from flyway_schema_history where success", Integer.class));
         String item = created(tokenA, VARIANT, "+94 (77) 123-4567");
         assertEquals("WAITING", JsonPath.read(item, "$.status"));
         assertEquals("+94771234567", JsonPath.read(item, "$.customerPhone"));

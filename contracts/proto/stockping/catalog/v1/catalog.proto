@@ -4,7 +4,8 @@ option java_package = "dev.stockping.contracts.catalog.v1";
 option java_multiple_files = true;
 option go_package = "stockping.dev/messaging-service/gen/stockping/catalog/v1;catalogv1";
 
-// Bearer JWT metadata is required. merchant_id must match its signed identity.
+// Bearer JWT metadata requires merchant_id to match its signed identity.
+// Internal read-only calls may use x-service-token plus trusted x-merchant-id metadata.
 // All calls are unary. Local plaintext is restricted to the private development network.
 service CatalogService {
   rpc ResolveProductVariant(ResolveProductVariantRequest) returns (ResolveProductVariantResponse);

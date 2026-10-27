@@ -1,0 +1,31 @@
+syntax = "proto3";
+package stockping.demand.v1;
+option java_package = "dev.stockping.contracts.demand.v1";
+option java_multiple_files = true;
+option go_package = "stockping.dev/messaging-service/gen/stockping/demand/v1;demandv1";
+
+// Authenticated Messaging service only: x-service-token metadata, bounded deadline.
+// merchant_id comes from the server-owned channel mapping, never customer text.
+service DemandService {
+  rpc ProcessCustomerMessage(ProcessCustomerMessageRequest) returns (ProcessCustomerMessageResponse);
+}
+message ProcessCustomerMessageRequest {
+  string merchant_id = 1;
+  string customer_phone = 2; // Canonical international +digits.
+  string customer_display_name = 3;
+  string provider_message_id = 4;
+  string message_text = 5;
+  string received_at = 6; // RFC3339 UTC provider message time.
+  string correlation_id = 7; // Canonical UUID, also x-request-id metadata.
+}
+enum ReplyAction {
+  REPLY_ACTION_UNSPECIFIED = 0;
+  SEND_TEXT = 1;
+  NO_REPLY = 2;
+}
+message ProcessCustomerMessageResponse {
+  ReplyAction action = 1;
+  string reply_text = 2;
+  string purpose = 3;
+  string correlation_id = 4;
+}

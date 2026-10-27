@@ -38,3 +38,12 @@ Manual waitlist creation locks the tenant-owned customer, verifies auditable con
 The React/MUI frontend provides login and a paginated/filterable waitlist with confirmed opt-out. Its bearer token stays in memory; reload requires login and logout deletes the token. Already-issued tokens expire naturally. Vite proxies local API calls to the correct service. Public deployment/TLS termination remains Stage 7.
 
 RabbitMQ remains running infrastructure. Messaging has no new business gRPC, WhatsApp, AI, restock events, notifications or delivery-status flow. See [Demand design and endpoints](demand.md) and [Stage 2 evidence](stage-2-validation.md).
+
+
+## Stage 3 WhatsApp and Go gRPC integration
+
+Messaging owns signed webhooks, server-configured channel mapping, versioned messaging_db persistence, duplicate protection, Cloud API replies and delivery history. Generated Demand v1 ProcessCustomerMessage carries normalized customer data and provider-independent reply instructions, protected by a dedicated internal credential.
+
+Demand owns HELP/STOP/exact STOCK. STOP reuses the Stage 2 consent transaction with CUSTOMER_MESSAGE provenance. STOCK uses Catalog gRPC with a separate read-only service credential; administrator JWT calls remain unchanged. Local gRPC is plaintext inside Compose and requires appropriate TLS termination when deployed.
+
+Processing is at-most-once after a durable claim, with observable failures and no uncertain-send retries or automatic crash recovery. Callbacks stay within Messaging. RabbitMQ business events, notification workers and AI remain absent. See [Messaging](messaging.md) and [Stage 3 validation](stage-3-validation.md).

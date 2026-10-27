@@ -51,6 +51,7 @@ logging:
       console: ecs
 
 catalog:
+  service-token: ${CATALOG_SERVICE_TOKEN:}
   grpc-port: ${CATALOG_GRPC_PORT:9091}
 
 auth:
