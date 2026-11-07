@@ -16,7 +16,8 @@ RUN mkdir -p gen && protoc -I /workspace/contracts/proto \
     --go_out=gen --go_opt=paths=source_relative \
     --go-grpc_out=gen --go-grpc_opt=paths=source_relative \
     /workspace/contracts/proto/stockping/skeleton/v1/probe.proto \
-    /workspace/contracts/proto/stockping/catalog/v1/catalog.proto
+    /workspace/contracts/proto/stockping/catalog/v1/catalog.proto \
+    /workspace/contracts/proto/stockping/demand/v1/demand.proto
 RUN test -z "$(gofmt -l cmd internal)" && go vet ./... && go test -race ./... \
     && CGO_ENABLED=0 go build -trimpath -o /out/messaging ./cmd/messaging
 

@@ -13,9 +13,11 @@ mvn -B -ntp verify
 docker run --rm --user "$(id -u):$(id -g)" \
   -e GOCACHE=/tmp/go-build -e GOPATH=/tmp/go \
   -v "$root:/workspace" -w /workspace/messaging-service stockping-proto-tools \
-  sh -eu -c 'test -z "$(gofmt -l cmd internal /workspace/scripts/catalog-grpc-check.go)"
+  sh -eu -c 'test -z "$(gofmt -l cmd internal /workspace/scripts/catalog-grpc-check.go /workspace/scripts/demand-grpc-check.go)"
     go vet ./...
     go test -race ./...
     go build -trimpath -o /tmp/messaging ./cmd/messaging
-    go build -trimpath -o /tmp/catalog-grpc-check /workspace/scripts/catalog-grpc-check.go'
+    go build -trimpath -o /tmp/catalog-grpc-check /workspace/scripts/catalog-grpc-check.go
+    go build -trimpath -o /tmp/demand-grpc-check /workspace/scripts/demand-grpc-check.go'
+./scripts/test-messaging-db.sh
 

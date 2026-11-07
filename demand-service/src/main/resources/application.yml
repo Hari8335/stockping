@@ -52,6 +52,7 @@ logging:
       console: ecs
 
 catalog:
+  service-token: ${CATALOG_SERVICE_TOKEN:}
   grpc-host: ${CATALOG_GRPC_HOST:localhost}
   grpc-port: ${CATALOG_GRPC_PORT:9091}
   grpc-timeout-ms: ${CATALOG_GRPC_TIMEOUT_MS:2000}
@@ -64,3 +65,8 @@ demo:
   merchant-id: ${DEMO_MERCHANT_ID:11111111-1111-1111-1111-111111111111}
   admin-email: ${DEMO_ADMIN_EMAIL:admin@demo.stockping.local}
   admin-password: ${DEMO_ADMIN_PASSWORD:}
+
+demand:
+  grpc-enabled: ${DEMAND_GRPC_ENABLED:false}
+  grpc-port: ${DEMAND_GRPC_PORT:9092}
+  service-token: ${MESSAGING_DEMAND_TOKEN:}

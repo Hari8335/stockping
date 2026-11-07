@@ -22,6 +22,7 @@ services:
     environment:
       PORT: "8081"
       CATALOG_GRPC_PORT: "9091"
+      CATALOG_SERVICE_TOKEN: ${CATALOG_SERVICE_TOKEN:?Run python3 scripts/init-local-env.py}
       CATALOG_DB_URL: jdbc:postgresql://postgres:5432/catalog_db
       CATALOG_DB_USER: catalog_user
       CATALOG_DB_PASSWORD: ${CATALOG_DB_PASSWORD:?Set CATALOG_DB_PASSWORD}
@@ -50,6 +51,10 @@ services:
       DEMAND_DB_PASSWORD: ${DEMAND_DB_PASSWORD:?Set DEMAND_DB_PASSWORD}
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?Run python3 scripts/init-local-env.py}
       AUTH_JWT_EXPIRY_SECONDS: ${AUTH_JWT_EXPIRY_SECONDS:-1800}
+      DEMAND_GRPC_ENABLED: "true"
+      DEMAND_GRPC_PORT: "9092"
+      MESSAGING_DEMAND_TOKEN: ${MESSAGING_DEMAND_TOKEN:?Run python3 scripts/init-local-env.py}
+      CATALOG_SERVICE_TOKEN: ${CATALOG_SERVICE_TOKEN:?Run python3 scripts/init-local-env.py}
       CATALOG_GRPC_HOST: catalog-service
       CATALOG_GRPC_PORT: "9091"
       CATALOG_GRPC_TIMEOUT_MS: ${CATALOG_GRPC_TIMEOUT_MS:-2000}
@@ -75,6 +80,30 @@ services:
       dockerfile: messaging-service/Dockerfile
     environment:
       PORT: "8083"
+      MESSAGING_DB_HOST: postgres
+      MESSAGING_DB_PORT: "5432"
+      MESSAGING_DB_USER: messaging_user
+      MESSAGING_DB_PASSWORD: ${MESSAGING_DB_PASSWORD:?Set MESSAGING_DB_PASSWORD}
+      DEMAND_GRPC_TARGET: demand-service:9092
+      MESSAGING_DEMAND_TOKEN: ${MESSAGING_DEMAND_TOKEN:?Run python3 scripts/init-local-env.py}
+      DEMAND_GRPC_TIMEOUT_MS: ${DEMAND_GRPC_TIMEOUT_MS:-3000}
+      DEMAND_GRPC_TLS: ${DEMAND_GRPC_TLS:-false}
+      WHATSAPP_HTTP_TIMEOUT_MS: ${WHATSAPP_HTTP_TIMEOUT_MS:-3000}
+      WHATSAPP_ENABLED: ${WHATSAPP_ENABLED:-false}
+      WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-}
+      WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
+      WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      WHATSAPP_WABA_ID: ${WHATSAPP_WABA_ID:-}
+      WHATSAPP_GRAPH_API_VERSION: ${WHATSAPP_GRAPH_API_VERSION:-}
+      WHATSAPP_MERCHANT_ID: ${WHATSAPP_MERCHANT_ID:-}
+      WHATSAPP_API_BASE_URL: ${WHATSAPP_API_BASE_URL:-https://graph.facebook.com}
+      WHATSAPP_ALLOW_TEST_ENDPOINT: ${WHATSAPP_ALLOW_TEST_ENDPOINT:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      demand-service:
+        condition: service_healthy
     ports:
       - "127.0.0.1:${MESSAGING_PORT:-8083}:8083"
     healthcheck:

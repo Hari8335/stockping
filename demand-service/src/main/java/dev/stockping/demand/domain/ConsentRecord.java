@@ -26,12 +26,15 @@ public class ConsentRecord {
 
     protected ConsentRecord() {}
     public ConsentRecord(UUID merchantId, UUID customerId, ConsentStatus status) {
+        this(merchantId, customerId, status, "MANUAL_API");
+    }
+    public ConsentRecord(UUID merchantId, UUID customerId, ConsentStatus status, String source) {
         this.id = UUID.randomUUID();
         this.merchantId = merchantId;
         this.customerId = customerId;
         this.type = "RESTOCK_NOTIFICATIONS";
         this.status = status;
-        this.source = "MANUAL_API";
+        this.source = source;
         this.capturedAt = Instant.now();
     }
     public UUID getId() { return id; }

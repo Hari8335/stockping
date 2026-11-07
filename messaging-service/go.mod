@@ -3,6 +3,8 @@ module stockping.dev/messaging-service
 go 1.26.0
 
 require (
+	github.com/google/uuid v1.6.0
+	github.com/lib/pq v1.10.9
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 )

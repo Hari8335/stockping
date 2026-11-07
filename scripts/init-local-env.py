@@ -13,7 +13,7 @@ for line in (root / ".env.example").read_text().splitlines():
         continue
     key, default = line.split("=", 1)
     if not values.get(key):
-        value = secrets.token_urlsafe(48) if key == "AUTH_JWT_SECRET" else secrets.token_urlsafe(18) if key == "DEMO_ADMIN_PASSWORD" else default
+        value = secrets.token_urlsafe(48) if key in {"AUTH_JWT_SECRET", "MESSAGING_DEMAND_TOKEN", "CATALOG_SERVICE_TOKEN"} else secrets.token_urlsafe(18) if key == "DEMO_ADMIN_PASSWORD" else default
         if key in values:
             existing = "\n".join(f"{key}={value}" if item.startswith(key + "=") else item for item in existing.splitlines()) + "\n"
         else:

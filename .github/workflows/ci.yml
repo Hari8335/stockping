@@ -36,6 +36,8 @@ jobs:
         run: python3 scripts/validate-catalog.py
       - name: Verify authenticated Demand flow and Catalog outage
         run: python3 scripts/validate-demand.py
+      - name: Verify signed Messaging webhooks and real Go to Java RPC
+        run: python3 scripts/validate-messaging.py
       - name: Show service state on failure
         if: failure()
         run: |
