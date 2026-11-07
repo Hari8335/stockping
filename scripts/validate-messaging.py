@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """Stage 3 local acceptance. Real Go/Java/PostgreSQL, synthetic signed webhooks and fake Meta.
 Temporarily overrides only Messaging configuration and stops services for outage checks.
@@ -78,12 +79,15 @@ def main():
             "WHATSAPP_ALLOW_TEST_ENDPOINT": "true"}}}}))
         override.chmod(0o600)
         stopped_demand = stopped_catalog = False
+
         try:
             docker("run", "-d", "--name", provider_name, "--network", network, "-p", "127.0.0.1::8080",
                    "-v", f"{ROOT / 'scripts/fake-whatsapp.py'}:/server.py:ro", "python:3.13-alpine", "python", "/server.py")
             hostport = json.loads(docker("inspect", provider_name).stdout)[0]["NetworkSettings"]["Ports"]["8080/tcp"][0]["HostPort"]
             provider = "http://127.0.0.1:" + hostport
-            compose("-f", base_file, "-f", str(override), "up", "-d", "--no-deps", "--wait", "--wait-timeout", "60", "messaging-service", timeout=90)
+
+            compose("-f", base_file, "-f", str(override), "up", "-d", "--no-deps", "--force-recreate", "--wait", "--wait-timeout", "60", "messaging-service", timeout=90)
+
             # Build a standalone generated Go client and run it on the private Compose network.
             docker("run", "--rm", "-v", f"{ROOT}:/workspace", "-v", f"{tmp}:/checks", "-w", "/workspace/messaging-service",
                    "-e", "CGO_ENABLED=0", "stockping-proto-tools", "go", "build", "-o", "/checks/demand-grpc-check", "/workspace/scripts/demand-grpc-check.go", timeout=300)
@@ -96,12 +100,13 @@ def main():
                 print(result.stdout.strip())
 
             grpc_check()
+
             # A stopped dependency may fail immediately. Hold a bounded read lock instead
             # to prove the Java call is in flight when the Go deadline expires.
             lock = subprocess.Popen(["docker", "compose", "--project-directory", str(ROOT),
                                      "exec", "-T", "postgres", "sh", "-c",
                                      'PGPASSWORD="$DEMAND_DB_PASSWORD" psql -h 127.0.0.1 -U demand_user -d demand_db -v ON_ERROR_STOP=1 -qAt'],
-                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             lock.stdin.write("BEGIN; SET LOCAL lock_timeout='3s'; LOCK TABLE merchants IN ACCESS EXCLUSIVE MODE; SELECT 'locked'; SELECT pg_sleep(3); ROLLBACK;\n")
             lock.stdin.close()
             try:
@@ -111,58 +116,75 @@ def main():
                 lock.wait(timeout=10)
                 lock.stdout.close()
                 lock.stderr.close()
+
             url = messaging + "/webhooks/whatsapp?" + urllib.parse.urlencode({"hub.mode": "subscribe", "hub.verify_token": "synthetic-verify-token", "hub.challenge": "123456"})
             with urllib.request.urlopen(url, timeout=5) as response:
                 assert response.status == 200 and response.read() == b"123456"
+
             identifier, payload = inbound("HELP")
             before = sql("SELECT count(*) FROM webhook_events;")
             assert signed(payload, False)[0] == 401
             assert sql("SELECT count(*) FROM webhook_events;") == before
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
                 results = list(pool.map(lambda _: signed(payload), range(8)))
+
             assert all(code == 200 for code, _ in results)
             assert event_state(identifier) == "PROCESSED"
+
             captured = request(provider, "GET", "/")["requests"]
             assert len(captured) == 1 and "STOCK <SKU>" in captured[0]["body"]["text"]["body"]
             outbound = captured[0]["id"]
+
             assert sql(f"SELECT count(*) FROM message_records WHERE merchant_id='{merchant}' AND provider_message_id='{identifier}' AND direction='INBOUND';") == "1"
             assert sql(f"SELECT count(*) FROM message_records WHERE merchant_id='{merchant}' AND provider_message_id='{outbound}' AND direction='OUTBOUND';") == "1"
+
             correlation = captured[0]["body"]["biz_opaque_callback_data"]
             assert sql(f"SELECT count(*) FROM message_records WHERE correlation_id='{correlation}';") == "2"
             logs = compose("logs", "--since", "5m", "demand-service").stdout
             assert logs.count("Customer command processed requestId=" + correlation) == 1
+
             print("PASS verification, invalid signature isolation, signed HELP, persistence, correlation, eight concurrent duplicates: one Demand call and one outbound")
 
             now = int(time.time())
             for state, at in [("read", now), ("delivered", now - 1), ("sent", now - 2), ("failed", now - 3), ("read", now)]:
                 assert signed(envelope({"statuses": [{"id": outbound, "status": state, "timestamp": str(at)}]}))[0] == 200
+
             assert sql(f"SELECT count(*) FROM delivery_events WHERE merchant_id='{merchant}' AND provider_message_id='{outbound}';") == "4"
             assert sql(f"SELECT status FROM message_records WHERE merchant_id='{merchant}' AND provider_message_id='{outbound}' AND direction='OUTBOUND';") == "READ"
             assert signed(envelope({"statuses": [{"id": "synthetic.unknown." + suffix, "status": "sent", "timestamp": str(now)}]}))[0] == 200
+
             print("PASS sent/delivered/read/failed status history, duplicate callback, unknown ID and chronological state")
 
             product = request(catalog, "POST", "/api/products", {"name": "Stage 3 test phone", "brand": "Demo", "category": "Phones"}, token, 201)
             sku = "STAGE3-" + suffix
             variant = request(catalog, "POST", f"/api/products/{product['id']}/variants", {"sku": sku, "attributes": {"color": "Black"}}, token, 201)
+
             _, payload = inbound("STOCK " + sku)
             assert signed(payload)[0] == 200
             assert request(provider, "GET", "/")["requests"][-1]["body"]["text"]["body"].endswith("currently out of stock.")
+
             waitlist = request(demand, "POST", "/api/waitlists", {"customerPhone": phone, "variantId": variant["id"], "consent": True}, token, expected=201)
+
             _, payload = inbound("STOP")
             assert signed(payload)[0] == 200
             assert request(demand, "GET", f"/api/waitlists/{waitlist['id']}", token=token)["status"] == "OPTED_OUT"
             request(demand, "POST", f"/api/customers/{waitlist['customerId']}/opt-in", token=token)
+
             renewed = request(demand, "POST", "/api/waitlists", {"customerPhone": phone, "variantId": variant["id"], "consent": False}, token, 201)
             identifier, delayed = inbound("STOP")
             delayed["entry"][0]["changes"][0]["value"]["messages"][0]["timestamp"] = str(int(time.time()) - 25 * 3600)
             sends_before_delayed = len(request(provider, "GET", "/")["requests"])
+
             assert signed(delayed)[0] == 200 and event_state(identifier) == "EXPIRED"
             assert request(demand, "GET", f"/api/waitlists/{renewed['id']}", token=token)["status"] == "OPTED_OUT"
             assert len(request(provider, "GET", "/")["requests"]) == sends_before_delayed
+
             request(catalog, "PATCH", f"/api/variants/{variant['id']}/inventory", {"quantity": 3}, token)
             _, payload = inbound("STOCK " + sku)
             assert signed(payload)[0] == 200
             assert request(provider, "GET", "/")["requests"][-1]["body"]["text"]["body"].endswith("currently available.")
+
             print("PASS exact SKU through production Catalog gRPC, authoritative zero/positive stock, STOP suppresses existing waitlist; delayed STOP updates consent without an expired-window reply")
 
             compose("stop", "catalog-service"); stopped_catalog = True
@@ -180,6 +202,7 @@ def main():
             assert event_state(identifier) == "DEMAND_FAILED"
             assert len(request(provider, "GET", "/")["requests"]) == before_sends
             compose("up", "-d", "--no-deps", "--wait", "--wait-timeout", "180", "demand-service", timeout=210); stopped_demand = False
+
             # Reconnect after outage; the failed ID remains claimed, with no automatic replay.
             assert signed(payload)[0] == 200
             assert len(request(provider, "GET", "/")["requests"]) == before_sends
@@ -190,10 +213,12 @@ def main():
             identifier, payload = inbound("HELP")
             assert signed(payload)[0] == 200
             assert event_state(identifier) == "PROVIDER_FAILED"
+
             assert sql(f"SELECT count(*) FROM message_records m JOIN webhook_events w ON w.id=m.webhook_event_id WHERE w.provider_event_id='inbound:{identifier}' AND m.direction='OUTBOUND' AND m.status='UNKNOWN' AND m.provider_message_id IS NULL;") == "1"
             assert signed(payload)[0] == 200
             assert len(request(provider, "GET", "/")["requests"]) == before_sends + 1
             print("PASS provider failure: uncertain state, no fabricated provider ID, one attempt")
+
         finally:
             if stopped_catalog:
                 compose("up", "-d", "--no-deps", "--wait", "--wait-timeout", "180", "catalog-service", timeout=210)
@@ -201,6 +226,7 @@ def main():
                 compose("up", "-d", "--no-deps", "--wait", "--wait-timeout", "180", "demand-service", timeout=210)
             compose("up", "-d", "--no-deps", "--wait", "--wait-timeout", "60", "messaging-service", timeout=90)
             docker("rm", "-f", provider_name)
+
     print("PASS local Stage 3 acceptance; real Meta acceptance remains separate; base Messaging configuration restored")
 
 
