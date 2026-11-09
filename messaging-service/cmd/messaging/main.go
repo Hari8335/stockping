@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	demandgrpc "stockping.dev/messaging-service/internal/grpc"
 	httpapi "stockping.dev/messaging-service/internal/http"
 	"stockping.dev/messaging-service/internal/processing"
+	"stockping.dev/messaging-service/internal/rabbitmq"
 	"stockping.dev/messaging-service/internal/store"
 	"stockping.dev/messaging-service/internal/whatsapp"
 )
@@ -35,6 +37,13 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	notifications, err := config.LoadNotifications(os.Getenv, settings)
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	var workerDone chan struct{}
 	startup, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	database, err := store.Open(startup, settings.DatabaseURL)
@@ -43,6 +52,10 @@ func run(logger *slog.Logger) error {
 	}
 	defer database.DB.Close()
 	mux := http.NewServeMux()
+	mux.HandleFunc("/health/notifications", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": notifications.Status})
+	})
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		ping, cancel := context.WithTimeout(r.Context(), time.Second)
 		defer cancel()
@@ -61,10 +74,15 @@ func run(logger *slog.Logger) error {
 		provider := whatsapp.NewClient(settings.BaseURL, settings.Version, settings.PhoneID, settings.AccessToken, settings.ProviderTimeout)
 		processor := &processing.Processor{Store: database, Demand: demand, Provider: provider, Logger: logger}
 		mux.Handle("/webhooks/whatsapp", &httpapi.Webhook{VerifyToken: settings.VerifyToken, AppSecret: settings.AppSecret, Channels: whatsapp.SingleChannel{WABA: settings.WABA, PhoneID: settings.PhoneID, MerchantID: settings.MerchantID}, Processor: processor})
+		if notifications.Status == "ready" {
+			processor := &processing.Notifications{Store: database, Demand: demand, Provider: provider, Configuration: notifications, MerchantID: settings.MerchantID}
+			consumer := &rabbitmq.Consumer{URL: notifications.BrokerURL, Processor: processor, Logger: logger}
+			workerDone = make(chan struct{})
+			go func() { defer close(workerDone); consumer.Run(ctx) }()
+		}
 	}
 	logger.Info("provider integration configured", "enabled", settings.Enabled)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	logger.Info("stock notifications configured", "status", notifications.Status)
 	server := &http.Server{
 		Addr: ":" + port, Handler: mux,
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
@@ -82,6 +100,13 @@ func run(logger *slog.Logger) error {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return server.Shutdown(shutdownCtx)
+		err := server.Shutdown(shutdownCtx)
+		if workerDone != nil {
+			select {
+			case <-workerDone:
+			case <-shutdownCtx.Done():
+			}
+		}
+		return err
 	}
 }

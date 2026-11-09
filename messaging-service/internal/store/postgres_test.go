@@ -40,11 +40,15 @@ func TestMigrationAndConcurrentDeduplication(t *testing.T) {
 	if calls.Load() != 1 {
 		t.Fatal("duplicate claimed")
 	}
-	for _, table := range []string{"webhook_events", "message_records", "schema_migrations"} {
+	for _, table := range []string{"webhook_events", "message_records"} {
 		var n int
 		if p.DB.QueryRow("SELECT count(*) FROM "+table).Scan(&n) != nil || n != 1 {
 			t.Fatalf("wrong %s rows", table)
 		}
+	}
+	var migrations int
+	if p.DB.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&migrations) != nil || migrations != 2 {
+		t.Fatal("wrong migration count")
 	}
 	m.MerchantID = uuid.NewString()
 	if id, e := p.Claim(ctx, m); e != nil || id == "" {

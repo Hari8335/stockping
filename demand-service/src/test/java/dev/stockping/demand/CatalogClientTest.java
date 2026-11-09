@@ -20,7 +20,7 @@ class CatalogClientTest {
     Identity identity;
     @BeforeEach void setup() {
         server = new TestCatalog();
-        channel = ManagedChannelBuilder.forAddress("localhost", server.port()).usePlaintext().build();
+        channel = ManagedChannelBuilder.forAddress("127.0.0.1", server.port()).usePlaintext().build();
         client = new CatalogClient(channel, 1000);
         identity = new Identity(UUID.randomUUID(), merchant, "MERCHANT_ADMIN", TestTokens.token(merchant));
         server.items.put(variant, new TestCatalog.Item(merchant, 0));

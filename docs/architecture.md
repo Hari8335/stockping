@@ -47,3 +47,24 @@ Messaging owns signed webhooks, server-configured channel mapping, versioned mes
 Demand owns HELP/STOP/exact STOCK. STOP reuses the Stage 2 consent transaction with CUSTOMER_MESSAGE provenance. STOCK uses Catalog gRPC with a separate read-only service credential; administrator JWT calls remain unchanged. Local gRPC is plaintext inside Compose and requires appropriate TLS termination when deployed.
 
 Processing is at-most-once after a durable claim, with observable failures and no uncertain-send retries or automatic crash recovery. Callbacks stay within Messaging. RabbitMQ business events, notification workers and AI remain absent. See [Messaging](messaging.md) and [Stage 3 validation](stage-3-validation.md).
+
+
+## Stage 4 stock notifications
+
+```text
+Merchant inventory PATCH
+  -> Catalog row-locked inventory + stock audit + event_outbox (one PostgreSQL transaction)
+  -> confirmed persistent inventory.stock_available.v1 -> RabbitMQ stockping.events
+  -> Demand inbox + eligible notification_jobs + event_outbox (one PostgreSQL transaction)
+  -> confirmed persistent notification.requested.v1 -> RabbitMQ stockping.events
+  -> Go Messaging -> authenticated Demand AuthorizeNotification -> Catalog exact-variant/stock gRPC
+  -> Messaging durable send claim -> configured WhatsApp template -> provider result persistence
+  -> authenticated Demand CompleteNotification -> waitlist NOTIFIED on acceptance
+Meta delivery callbacks -> existing Messaging message_records + delivery_events
+```
+
+Catalog still owns stock; Demand still owns consent and notification eligibility; Messaging still owns provider submission and delivery history. Outboxes are service-local tables with lightweight scheduled publishers, not new services. RabbitMQ messages contain no phone numbers. Demand verifies current product/variant context over the existing read-only Catalog credential and obtains the latest consent under the same customer lock used by STOP. All eligible waiters are notified; this does not reserve inventory or allocate the first N units.
+
+Delivery is at least once inside the broker/outbox pipeline. Database keys prevent duplicate jobs and durable Go claims prevent intentional repeat provider submissions. A crash in the external-send gap produces a conservative UNKNOWN outcome; it is never claimed as exactly-once delivery. Consent/availability are point-in-time checks immediately before submission; a STOP committed after authorization cannot recall an already in-flight provider request. [Stage 4 validation](stage-4-validation.md) records the complete guarantees and operational recovery boundaries.
+
+The earlier stage sections describe historical boundaries. Stage 4 supersedes their statements that RabbitMQ is infrastructure-only and that notifications are absent. The frontend stays unchanged; the existing inventory API triggers this backend flow.

@@ -22,10 +22,11 @@ public class CatalogService {
     private final InventoryRepository inventories;
     private final StockEventRepository events;
     private final MerchantContextProvider merchants;
+    private final dev.stockping.catalog.messaging.StockOutbox outbox;
     public CatalogService(ProductRepository products, ProductVariantRepository variants, InventoryRepository inventories,
-            StockEventRepository events, MerchantContextProvider merchants) {
+            StockEventRepository events, MerchantContextProvider merchants, dev.stockping.catalog.messaging.StockOutbox outbox) {
         this.products = products; this.variants = variants; this.inventories = inventories;
-        this.events = events; this.merchants = merchants;
+        this.events = events; this.merchants = merchants; this.outbox = outbox;
     }
     @Transactional
     public ProductView createProduct(@NotNull @Valid CreateProduct request) {
@@ -118,7 +119,10 @@ public class CatalogService {
     public InventoryUpdate updateInventory(UUID variantId, @NotNull @Valid UpdateInventory request) {
         var inventory = inventories.findForUpdate(variantId, merchants.currentMerchantId()).orElseThrow(ResourceNotFoundException::new);
         var event = inventory.setQuantity(request.quantity());
-        event.ifPresent(events::save);
+        event.ifPresent(change -> {
+            events.saveAndFlush(change);
+            if (change.isRestockTransition()) outbox.record(change, ownedVariant(variantId));
+        });
         return new InventoryUpdate(InventoryView.from(inventory), event.isPresent(),
                 event.map(StockEvent::isRestockTransition).orElse(false), event.map(StockEvent::getId).orElse(null));
     }

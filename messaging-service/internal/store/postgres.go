@@ -49,25 +49,32 @@ func (p *Postgres) Migrate(ctx context.Context) error {
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(735031); CREATE TABLE IF NOT EXISTS schema_migrations (version integer PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
 		return err
 	}
-	body, err := migrations.ReadFile("migrations/001_messaging.sql")
+	files, err := migrations.ReadDir("migrations")
 	if err != nil {
 		return err
 	}
-	sum := sha256.Sum256(body)
-	checksum := hex.EncodeToString(sum[:])
-	var existing string
-	err = tx.QueryRowContext(ctx, "SELECT checksum FROM schema_migrations WHERE version=1").Scan(&existing)
-	if errors.Is(err, sql.ErrNoRows) {
-		if _, err = tx.ExecContext(ctx, string(body)); err != nil {
+	for index, file := range files {
+		version := index + 1
+		body, err := migrations.ReadFile("migrations/" + file.Name())
+		if err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, "INSERT INTO schema_migrations(version,checksum) VALUES(1,$1)", checksum); err != nil {
+		sum := sha256.Sum256(body)
+		checksum := hex.EncodeToString(sum[:])
+		var existing string
+		err = tx.QueryRowContext(ctx, "SELECT checksum FROM schema_migrations WHERE version=$1", version).Scan(&existing)
+		if errors.Is(err, sql.ErrNoRows) {
+			if _, err = tx.ExecContext(ctx, string(body)); err != nil {
+				return err
+			}
+			if _, err = tx.ExecContext(ctx, "INSERT INTO schema_migrations(version,checksum) VALUES($1,$2)", version, checksum); err != nil {
+				return err
+			}
+		} else if err != nil {
 			return err
+		} else if existing != checksum {
+			return errors.New("migration_checksum_mismatch")
 		}
-	} else if err != nil {
-		return err
-	} else if existing != checksum {
-		return errors.New("migration_checksum_mismatch")
 	}
 	return tx.Commit()
 }

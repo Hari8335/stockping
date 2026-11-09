@@ -22,7 +22,7 @@ class DemandGrpcTest {
         application = mock(CustomerMessageService.class);
         when(application.process(any())).thenReturn(new CustomerMessageService.Reply(true,"Help text","HELP"));
         server = NettyServerBuilder.forPort(0).addService(ServerInterceptors.intercept(
-                new DemandGrpcService(application,new PhoneNormalizer()),new DemandAuthenticationInterceptor(TOKEN))).build().start();
+                new DemandGrpcService(application,new PhoneNormalizer(),mock(dev.stockping.demand.messaging.NotificationService.class)),new DemandAuthenticationInterceptor(TOKEN))).build().start();
         channel = ManagedChannelBuilder.forAddress("localhost",server.getPort()).usePlaintext().build();
     }
     @AfterEach void close() throws Exception { channel.shutdownNow().awaitTermination(5,TimeUnit.SECONDS);server.shutdownNow().awaitTermination(5,TimeUnit.SECONDS); }

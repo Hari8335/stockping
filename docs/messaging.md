@@ -14,7 +14,7 @@ WhatsApp → Meta → HTTPS /webhooks/whatsapp → Go Messaging → messaging_db
 
 ## Ownership and authentication
 
-Messaging owns Meta payloads, signatures, credentials, trusted channel mapping and delivery callbacks. It connects only to `messaging_db`. Demand owns conversation decisions and customer/consent changes. Catalog alone owns stock truth. No cross-service SQL, business RabbitMQ producers/consumers, notification workflow or AI has been added.
+Messaging owns Meta payloads, signatures, credentials, trusted channel mapping and delivery callbacks. It connects only to `messaging_db`. Demand owns conversation decisions and customer/consent changes. Catalog alone owns stock truth. No service reads another service database. Stage 4 adds the RabbitMQ template-notification workflow described below; AI remains outside this implementation.
 
 `SingleChannel` implements `ChannelResolver`: both configured WABA ID and phone-number ID must match before the configured merchant UUID is accepted. Customer text cannot select a merchant. A future Messaging-owned mapping repository can implement the same interface.
 
@@ -132,3 +132,12 @@ The validator requires demo login, temporarily overrides Messaging, creates a fa
 Checked on 26 October 2026: Meta's [Cloud API collection](https://www.postman.com/meta/whatsapp-business-platform/documentation/wlk6lh4/whatsapp-cloud-api?entity=folder-13382743-ba8d099d-007e-4b52-b9f2-3cf3c60e4fbc), [messages/permissions](https://www.postman.com/meta/whatsapp-business-platform/folder/o48mro7/messages), [text endpoint](https://www.postman.com/meta/whatsapp-business-platform/request/8gvd47s/send-text-message), [WABA subscription](https://www.postman.com/meta/whatsapp-business-platform/documentation/wlk6lh4/whatsapp-cloud-api?entity=request-13382743-f4211a46-9301-4735-a23c-7359f1a7f849), and [Meta webhook signature sample](https://github.com/fbsamples/whatsapp-api-examples/blob/main/signature-validation-with-webhooks-payloads/app.py). StockPing uses separate app/verify secrets and constant-time comparison.
 
 Direct Meta [webhook guidance](https://developers.facebook.com/docs/graph-api/webhooks/getting-started), [WhatsApp overview](https://developers.facebook.com/documentation/business-messaging/whatsapp/overview), [sending guide](https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-messages) and [Graph changelog](https://developers.facebook.com/docs/graph-api/changelog/) returned HTTP 429 during this run. The accessible official Meta Postman references were the fallback. No live API version/account-specific window/template behavior has been validated; recheck those pages and the app dashboard before real acceptance. `v26.0` in automated tests is a fake-provider fixture, not a live compatibility result.
+
+
+## Stage 4 automatic templates
+
+Stage 4 adds a RabbitMQ notification consumer to this same Go service. Immediate HELP/STOCK/STOP text replies retain the existing path and window check. Automatic alerts exclusively use configured positional body templates, with no text fallback. See [Stage 4 configuration, state transitions and recovery](stage-4-validation.md).
+
+`notification_receipts` owns durable idempotency and the single external-send claim. Automatic outbound records reuse `message_records` with a `notification_id` instead of a webhook origin; existing chronological delivery callbacks work for both origins. Migration `002_notifications.sql` preserves existing rows. `GET /health/notifications` exposes only a configuration status (`disabled`, `provider_disabled`, `template_configuration_required`, `real_sending_disabled`, or `ready`), not an assurance that a template has been approved or that the broker is connected.
+
+Messaging's authenticated Demand v1 API now also supports `AuthorizeNotification` and `CompleteNotification`. The request event contains no recipient data. Demand returns the current authorized recipient and product details just before sending, and receives the persisted submission outcome. Meta callbacks remain Messaging-owned. Template approval and a real recipient test are external acceptance steps; the automated Stage 4 script never uses Meta credentials.

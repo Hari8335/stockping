@@ -29,10 +29,11 @@ class CatalogIntegrationTest extends PostgresTest {
     @Autowired InventoryRepository inventories;
     @Autowired StockEventRepository events;
     @Autowired CatalogGrpcServer grpcServer;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
     HttpClient http;
     ManagedChannel channel;
     @BeforeEach void setup() {
-        jdbc.execute("TRUNCATE stock_events, inventory, product_variants, products");
+        jdbc.execute("TRUNCATE event_outbox, stock_events, inventory, product_variants, products");
         http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
         channel = ManagedChannelBuilder.forAddress("localhost", grpcServer.getPort()).usePlaintext().build();
     }
@@ -121,6 +122,41 @@ class CatalogIntegrationTest extends PostgresTest {
         assertEquals(List.of(5,10,0),audit.stream().map(StockEvent::getNewQuantity).toList());
         assertError(400,call("PATCH","/api/variants/"+variant+"/inventory","{\"quantity\":-1}"));
         assertEquals(3,events.count()); assertEquals(0,inventories.findByVariantIdAndMerchantId(UUID.fromString(variant),A).orElseThrow().getQuantity());
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM event_outbox", Integer.class));
+        assertEquals("PENDING", jdbc.queryForObject("SELECT status FROM event_outbox", String.class));
+        call("PATCH","/api/variants/"+variant+"/inventory","{\"quantity\":2}");
+        assertEquals(2, jdbc.queryForObject("SELECT count(DISTINCT id) FROM event_outbox", Integer.class));
+    }
+    @Test void outboxFailureRollsBackInventoryAndAudit() throws Exception {
+        String variant=createVariant(createProduct(),"OUTBOX-ROLLBACK","512GB","Black");
+        jdbc.execute("CREATE FUNCTION reject_test_outbox() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test outbox failure'; END $$");
+        jdbc.execute("CREATE TRIGGER reject_test_outbox BEFORE INSERT ON event_outbox FOR EACH ROW EXECUTE FUNCTION reject_test_outbox()");
+        try {
+            assertEquals(500,call("PATCH","/api/variants/"+variant+"/inventory","{\"quantity\":5}").statusCode());
+            assertEquals(0,inventories.findByVariantIdAndMerchantId(UUID.fromString(variant),A).orElseThrow().getQuantity());
+            assertEquals(0,events.count());
+        } finally { jdbc.execute("DROP TRIGGER reject_test_outbox ON event_outbox"); jdbc.execute("DROP FUNCTION reject_test_outbox()"); }
+    }
+    @Test void publisherPersistsBackoffConfirmsRecoveryAndParksExhaustedRows() throws Exception {
+        String variant=createVariant(createProduct(),"PUBLISHER","512GB","Black");
+        call("PATCH","/api/variants/"+variant+"/inventory","{\"quantity\":5}");
+        var rabbit=org.mockito.Mockito.mock(org.springframework.amqp.rabbit.core.RabbitTemplate.class);
+        org.mockito.Mockito.doThrow(new org.springframework.amqp.AmqpException("synthetic outage")).when(rabbit)
+                .send(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.any(org.springframework.amqp.core.Message.class),org.mockito.ArgumentMatchers.any(org.springframework.amqp.rabbit.connection.CorrelationData.class));
+        var publisher=new dev.stockping.catalog.messaging.OutboxPublisher(jdbc,rabbit,transactionManager);
+        publisher.publish();
+        assertEquals("PENDING:1",jdbc.queryForObject("SELECT status||':'||attempts FROM event_outbox",String.class));
+        assertTrue(jdbc.queryForObject("SELECT next_attempt_at>now() FROM event_outbox",Boolean.class));
+        jdbc.update("UPDATE event_outbox SET next_attempt_at=now()");
+        org.mockito.Mockito.doAnswer(call->{org.springframework.amqp.rabbit.connection.CorrelationData data=call.getArgument(3);data.getFuture().complete(new org.springframework.amqp.rabbit.connection.CorrelationData.Confirm(true,null));return null;}).when(rabbit)
+                .send(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.any(org.springframework.amqp.core.Message.class),org.mockito.ArgumentMatchers.any(org.springframework.amqp.rabbit.connection.CorrelationData.class));
+        publisher.publish();
+        assertEquals("PUBLISHED:2",jdbc.queryForObject("SELECT status||':'||attempts FROM event_outbox",String.class));
+        jdbc.update("UPDATE event_outbox SET status='PENDING',attempts=19,next_attempt_at=now(),published_at=NULL");
+        org.mockito.Mockito.doThrow(new org.springframework.amqp.AmqpException("synthetic outage")).when(rabbit)
+                .send(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.any(org.springframework.amqp.core.Message.class),org.mockito.ArgumentMatchers.any(org.springframework.amqp.rabbit.connection.CorrelationData.class));
+        publisher.publish();publisher.publish();
+        assertEquals("PARKED:20",jdbc.queryForObject("SELECT status||':'||attempts FROM event_outbox",String.class));
     }
     @Test void malformedAndInvalidInputsAreRejected() throws Exception {
         for (String json:List.of("{}","{\"name\":\" \"}","{\"name\":\"Phone\",\"brand\":\"X\",\"category\":\"Y\",\"status\":\"UNKNOWN\"}",
@@ -252,6 +288,7 @@ class CatalogIntegrationTest extends PostgresTest {
         assertEquals(2,audit.size()); assertEquals(0,audit.get(0).getPreviousQuantity());
         assertEquals(audit.get(0).getNewQuantity(),audit.get(1).getPreviousQuantity());
         assertEquals(audit.get(1).getNewQuantity(),inventories.findByVariantIdAndMerchantId(UUID.fromString(v),A).orElseThrow().getQuantity());
+        assertEquals(1,jdbc.queryForObject("SELECT count(*) FROM event_outbox",Integer.class));
     }
     @Test void restRequiresValidMerchantAdministratorToken() throws Exception {
         assertError(401, callAs(null, "GET", "/api/products", null));

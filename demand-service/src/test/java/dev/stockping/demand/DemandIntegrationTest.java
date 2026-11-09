@@ -37,7 +37,7 @@ class DemandIntegrationTest extends PostgresTest {
     String tokenA, tokenB;
 
     @BeforeEach void setup() {
-        jdbc.execute("TRUNCATE demand_audit, waitlist_requests, consent_records, customers, users, merchants");
+        jdbc.execute("TRUNCATE event_outbox, notification_jobs, availability_events, demand_audit, waitlist_requests, consent_records, customers, users, merchants");
         merchants.saveAndFlush(new Merchant(A, "Shop A", "Asia/Colombo"));
         merchants.saveAndFlush(new Merchant(B, "Shop B", "UTC"));
         users.saveAndFlush(new User(A, "admin@a.test", HASH));
@@ -124,7 +124,7 @@ class DemandIntegrationTest extends PostgresTest {
     @Test void cleanMigrationAndDomainPersistence() throws Exception {
         assertEquals(1, jdbc.queryForObject("select count(*) from flyway_schema_history where success and version='1'", Integer.class));
         assertEquals(1, jdbc.queryForObject("select count(*) from flyway_schema_history where success and version='2'", Integer.class));
-        assertEquals(2, jdbc.queryForObject("select count(*) from flyway_schema_history where success", Integer.class));
+        assertEquals(3, jdbc.queryForObject("select count(*) from flyway_schema_history where success", Integer.class));
         String item = created(tokenA, VARIANT, "+94 (77) 123-4567");
         assertEquals("WAITING", JsonPath.read(item, "$.status"));
         assertEquals("+94771234567", JsonPath.read(item, "$.customerPhone"));

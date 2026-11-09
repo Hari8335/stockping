@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "inventory.stock_available.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventId",
+    "eventType",
+    "eventVersion",
+    "occurredAt",
+    "merchantId",
+    "productId",
+    "variantId",
+    "sku",
+    "previousQuantity",
+    "newQuantity",
+    "correlationId"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "eventType": {
+      "const": "inventory.stock_available.v1"
+    },
+    "eventVersion": {
+      "const": 1
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "merchantId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "productId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "variantId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sku": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "previousQuantity": {
+      "const": 0
+    },
+    "newQuantity": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647
+    },
+    "correlationId": {
+      "type": "string",
+      "format": "uuid"
+    }
+  }
+}

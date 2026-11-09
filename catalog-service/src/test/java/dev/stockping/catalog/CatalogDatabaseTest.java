@@ -18,11 +18,11 @@ class CatalogDatabaseTest extends PostgresTest {
     @Autowired InventoryRepository inventories;
     @Autowired StockEventRepository events;
     UUID a=UUID.randomUUID(), b=UUID.randomUUID();
-    @BeforeEach void clean() { jdbc.execute("TRUNCATE stock_events, inventory, product_variants, products"); }
+    @BeforeEach void clean() { jdbc.execute("TRUNCATE event_outbox, stock_events, inventory, product_variants, products"); }
     Product product(UUID merchant) { return products.saveAndFlush(new Product(merchant,"Phone","Brand","Category",CatalogStatus.ACTIVE)); }
     ProductVariant variant(Product p, String sku) { return variants.saveAndFlush(new ProductVariant(p,sku,Map.of("color","Black"),null,CatalogStatus.ACTIVE)); }
     @Test void cleanMigrationAndAllEntitiesRoundTrip() {
-        assertEquals(1,jdbc.queryForObject("select count(*) from flyway_schema_history where success",Integer.class));
+        assertEquals(2,jdbc.queryForObject("select count(*) from flyway_schema_history where success",Integer.class));
         Product p=product(a); ProductVariant v=variant(p,"SKU");
         assertEquals("Phone",products.findByIdAndMerchantId(p.getId(),a).orElseThrow().getName());
         assertEquals(Map.of("color","Black"),variants.findByIdAndMerchantId(v.getId(),a).orElseThrow().getAttributes());

@@ -2,13 +2,13 @@
 
 StockPing is a software engineering portfolio project for capturing retail demand through WhatsApp and notifying consenting customers when an exact product variant returns to stock.
 
-**Current implementation: Stage 3 — WhatsApp + Go/gRPC integration; real-provider acceptance pending.** Messaging validates signed Cloud API webhooks, persists/deduplicates messages, calls authenticated Demand gRPC, and sends immediate replies. Demand supports `HELP`, `STOP`, and `STOCK <exact SKU>` through Catalog gRPC. Existing auth, consent, waitlists and frontend remain. See the [Messaging guide](docs/messaging.md), [Stage 3 validation](docs/stage-3-validation.md), [Demand guide](docs/demand.md), and [Catalog guide](docs/catalog.md). The [StockPing SRS v1.1](docs/StockPing_SRS_v1.1.docx) defines the baseline and staged boundaries.
+**Current implementation: Stage 4 — RabbitMQ stock notifications.** Catalog records restock events in a transactional outbox; Demand consumes them, applies consent/waitlist rules and queues durable notification requests; Go Messaging revalidates eligibility over authenticated gRPC and submits configured WhatsApp templates. Automatic real-provider sends remain explicitly gated. See [Stage 4 validation and recovery](docs/stage-4-validation.md), [Messaging](docs/messaging.md), [Demand](docs/demand.md) and [Catalog](docs/catalog.md).
 
 ## Architecture and technologies
 
 The system has three backend services. Catalog owns products and authoritative inventory; Demand owns merchant authentication, customers, consent and waitlists; Messaging owns WhatsApp transport and delivery state. React + TypeScript + Material UI provides the merchant interface.
 
-Browser/external boundaries use HTTP/REST. Messaging → Demand and Demand → Catalog use generated gRPC/Protocol Buffers with authenticated internal calls. One PostgreSQL server hosts three service-owned databases: catalog_db, demand_db and messaging_db. RabbitMQ remains infrastructure only; business events are deferred to Stage 4.
+Browser/external boundaries use HTTP/REST. Messaging → Demand and Demand → Catalog use generated gRPC/Protocol Buffers with authenticated internal calls. One PostgreSQL server hosts three service-owned databases: catalog_db, demand_db and messaging_db. RabbitMQ carries versioned stock-available and notification-requested business events through durable quorum queues with bounded retry and dead-letter handling.
 
 The skeleton uses Java 21, Spring Boot 4.1.1, Maven, Go 1.26.8, Node.js 24, Vite, PostgreSQL 18 and RabbitMQ 4 management. [Architecture decisions](docs/architecture.md) explain the shared contracts, service boundaries and database isolation.
 
@@ -22,7 +22,7 @@ stockping/
 ├── contracts/
 │   ├── proto/                 # Versioned protobuf/gRPC source of truth
 │   ├── java/                  # Generated Java contract library and wire test
-│   └── events/                # Reserved for Stage 4
+│   └── events/                # Versioned Stage 4 JSON schemas
 ├── infra/postgres/            # Empty service databases and separate roles
 ├── scripts/                   # Generation, tests, Compose smoke verification
 ├── docs/                      # Architecture, quality rules, validation
@@ -136,13 +136,23 @@ python3 scripts/smoke-test.py
 python3 scripts/validate-catalog.py
 python3 scripts/validate-demand.py
 python3 scripts/validate-messaging.py
+# Isolated Compose project, synthetic credentials, disposable volumes and fake provider only.
+python3 scripts/validate-stage4.py
 ```
 
 Go tests include configuration validation, actual HTTP health/error requests, and generated contract compatibility; the runner also checks formatting, `go vet`, the race detector and compilation. Java integration tests use disposable PostgreSQL 18 and real HTTP/gRPC servers. They test CRUD, inventory transitions/audits, concurrency/rollback, validation, tenant isolation and the preserved health/configuration boundaries. Frontend tests cover login, waitlist states, filtering, logout, expiry and confirmed opt-out. The Compose test checks all application boundaries, three owned PostgreSQL connections, all six denied cross-service database connections, and authenticated RabbitMQ management access.
 
-GitHub Actions runs these checks on push/PR, including a full Compose startup. Catalog regressions remain covered; Stage 2 adds JWT security, Demand persistence/concurrency, consent, tenant isolation and a real gRPC client. Stage 3 adds signed webhook, PostgreSQL duplicate/concurrency, provider-adapter and real Go → Java validation. RabbitMQ business events remain deferred. [Engineering requirements](docs/engineering-quality.md) define the feature-specific test gates for subsequent stages. [Stage 0 evidence](docs/stage-0-validation.md) is preserved; [Stage 1 evidence](docs/stage-1-validation.md) records the Catalog slice; [Stage 2 evidence](docs/stage-2-validation.md) records Demand.
+GitHub Actions runs these checks on push/PR, including a full Compose startup. Catalog regressions remain covered; Stage 2 adds JWT security, Demand persistence/concurrency, consent, tenant isolation and a real gRPC client. Stage 3 adds signed webhook, PostgreSQL duplicate/concurrency, provider-adapter and real Go → Java validation. Stage 4 adds transactional outboxes, notification idempotency, template safety gates and isolated real-broker acceptance. [Engineering requirements](docs/engineering-quality.md) define the feature-specific test gates for subsequent stages. [Stage 0 evidence](docs/stage-0-validation.md) is preserved; [Stage 1 evidence](docs/stage-1-validation.md) records the Catalog slice; [Stage 2 evidence](docs/stage-2-validation.md) records Demand.
 
 
 ## WhatsApp setup
 
 Provider integration is disabled until official Cloud API credentials, channel IDs, an explicit Graph version and trusted merchant mapping are set in ignored `.env`. The initializer generates separate internal service credentials. Real acceptance needs an official number and temporary HTTPS callback ending `/webhooks/whatsapp`. Follow the [Messaging setup procedure](docs/messaging.md#real-whatsapp-acceptance-procedure). Automated tests and the local validator require no Meta credentials.
+
+## Automatic stock notifications
+
+Inventory updates use the existing authenticated Catalog PATCH endpoint. A zero-to-positive change creates the availability event in the same transaction; there is no notification button. Catalog and Demand relays start by default in Compose and tolerate broker downtime. Messaging leaves automatic requests queued until `STOCK_NOTIFICATIONS_ENABLED=true` and a template is configured. `/health/notifications` reports the configuration gate without exposing credentials; `/health` remains the database health check.
+
+Set `WHATSAPP_STOCK_TEMPLATE_NAME`, `WHATSAPP_STOCK_TEMPLATE_LANGUAGE`, and an ordered `WHATSAPP_STOCK_TEMPLATE_PARAMETERS` list containing approved positional body fields (`product_name`, `sku`, `variant_description`). Names are never assumed approved. Intentional real-provider testing also requires `WHATSAPP_STOCK_REAL_SEND_ENABLED=true` and `WHATSAPP_STOCK_ALLOWED_RECIPIENTS` containing authorized international phone numbers. Do not enable these for automated tests. Local acceptance configures only a synthetic fake-provider template and leaves `.env` and normal volumes untouched.
+
+`GET /api/notifications` returns the authenticated merchant's latest 100 job submission outcomes. Provider delivery history remains in Messaging; `ACCEPTED` means provider submission, not delivery. See [delivery guarantees, parked rows and dead-letter recovery](docs/stage-4-validation.md).

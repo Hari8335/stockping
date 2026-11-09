@@ -18,7 +18,7 @@ class CatalogServiceTest {
     ProductVariantRepository variants=mock(ProductVariantRepository.class);
     InventoryRepository inventories=mock(InventoryRepository.class);
     StockEventRepository events=mock(StockEventRepository.class);
-    CatalogService service=new CatalogService(mock(ProductRepository.class),variants,inventories,events,()->merchant);
+    CatalogService service=new CatalogService(mock(ProductRepository.class),variants,inventories,events,()->merchant,mock(dev.stockping.catalog.messaging.StockOutbox.class));
     @ParameterizedTest @CsvSource({"0,NOT_FOUND", "1,MATCHED", "2,AMBIGUOUS"})
     void resolutionUsesTotalMatchesRatherThanChoosingFirstCandidate(int count, Resolution expected) {
         var product=new Product(merchant,"Phone","Brand","Category",CatalogStatus.ACTIVE);
@@ -37,9 +37,10 @@ class CatalogServiceTest {
     }
     @Test void actualChangeSavesEventAndReportsRestock() {
         when(inventories.findForUpdate(variantId,merchant)).thenReturn(Optional.of(new Inventory(merchant,variantId)));
+        when(variants.findByIdAndMerchantId(variantId,merchant)).thenReturn(Optional.of(mock(ProductVariant.class)));
         var result=service.updateInventory(variantId,new UpdateInventory(5));
         assertTrue(result.changed()); assertTrue(result.restockTransition()); assertNotNull(result.stockEventId());
-        verify(events).save(argThat(e->e.getPreviousQuantity()==0 && e.getNewQuantity()==5 && e.isRestockTransition()));
+        verify(events).saveAndFlush(argThat(e->e.getPreviousQuantity()==0 && e.getNewQuantity()==5 && e.isRestockTransition()));
     }
     @Test void invalidAttributeKeysValuesAndAliasesAreRejected() {
         assertThrows(IllegalArgumentException.class,()->CatalogService.normalizeAttributes(Map.of("color"," ")));
