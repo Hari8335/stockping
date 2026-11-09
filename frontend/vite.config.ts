@@ -10,6 +10,7 @@ export default defineConfig({
       '/api/waitlists': process.env.DEMAND_API_TARGET || 'http://localhost:8082',
       '/api/customers': process.env.DEMAND_API_TARGET || 'http://localhost:8082',
       '/api/analytics': process.env.DEMAND_API_TARGET || 'http://localhost:8082',
+      '/api/ai': process.env.DEMAND_API_TARGET || 'http://localhost:8082',
       '/api/products': process.env.CATALOG_API_TARGET || 'http://localhost:8081',
       '/api/variants': process.env.CATALOG_API_TARGET || 'http://localhost:8081',
     },
