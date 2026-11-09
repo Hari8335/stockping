@@ -34,6 +34,26 @@ func New(target, token string, timeout time.Duration, tlsEnabled bool) (*Client,
 	return &Client{conn, demandv1.NewDemandServiceClient(conn), token, timeout}, nil
 }
 func (c *Client) Close() error { return c.conn.Close() }
+func (c *Client) Authorize(ctx context.Context, n model.Notification) (model.Authorization, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	ctx = metadata.AppendToOutgoingContext(ctx, "x-service-token", c.token, "x-request-id", n.CorrelationID)
+	result, err := c.client.AuthorizeNotification(ctx, &demandv1.AuthorizeNotificationRequest{MerchantId: n.MerchantID, NotificationId: n.NotificationID, AvailabilityEventId: n.AvailabilityEventID, CorrelationId: n.CorrelationID})
+	if err != nil {
+		return model.Authorization{}, errors.New("authorization_unavailable")
+	}
+	return model.Authorization{Eligible: result.Eligible, Reason: result.Reason, Phone: result.CustomerPhone, ProductName: result.ProductName, SKU: result.Sku, VariantDescription: result.VariantDescription}, nil
+}
+func (c *Client) Complete(ctx context.Context, n model.Notification, r model.NotificationResult) error {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	ctx = metadata.AppendToOutgoingContext(ctx, "x-service-token", c.token, "x-request-id", n.CorrelationID)
+	_, err := c.client.CompleteNotification(ctx, &demandv1.CompleteNotificationRequest{MerchantId: n.MerchantID, NotificationId: n.NotificationID, Status: r.Status, Reason: r.Reason, ProviderMessageId: r.ProviderID})
+	if err != nil {
+		return errors.New("completion_unavailable")
+	}
+	return nil
+}
 func (c *Client) Process(ctx context.Context, m model.Message) (model.Reply, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()

@@ -16,7 +16,27 @@ public class DemandGrpcService extends DemandServiceGrpc.DemandServiceImplBase {
     private static final Logger LOG = LoggerFactory.getLogger(DemandGrpcService.class);
     private final CustomerMessageService messages;
     private final PhoneNormalizer phones;
-    public DemandGrpcService(CustomerMessageService messages, PhoneNormalizer phones) { this.messages = messages; this.phones = phones; }
+    private final dev.stockping.demand.messaging.NotificationService notifications;
+    public DemandGrpcService(CustomerMessageService messages, PhoneNormalizer phones, dev.stockping.demand.messaging.NotificationService notifications) {
+        this.messages = messages; this.phones = phones; this.notifications = notifications;
+    }
+    @Override public void authorizeNotification(AuthorizeNotificationRequest request, StreamObserver<AuthorizeNotificationResponse> observer) {
+        notificationCall(observer, () -> notifications.authorize(request));
+    }
+    @Override public void completeNotification(CompleteNotificationRequest request, StreamObserver<CompleteNotificationResponse> observer) {
+        notificationCall(observer, () -> { notifications.complete(request); return CompleteNotificationResponse.getDefaultInstance(); });
+    }
+    private <T> void notificationCall(StreamObserver<T> observer, java.util.function.Supplier<T> call) {
+        try {
+            if (Context.current().isCancelled()) { observer.onError(Status.CANCELLED.asRuntimeException()); return; }
+            observer.onNext(call.get()); observer.onCompleted();
+        } catch (IllegalArgumentException e) {
+            observer.onError(Status.INVALID_ARGUMENT.withDescription("Invalid notification request").asRuntimeException());
+        } catch (Exception e) {
+            LOG.warn("Notification RPC failed errorCode=notification_unavailable");
+            observer.onError(Status.UNAVAILABLE.withDescription("Notification processing unavailable").asRuntimeException());
+        }
+    }
     @Override public void processCustomerMessage(ProcessCustomerMessageRequest request, StreamObserver<ProcessCustomerMessageResponse> observer) {
         String correlation = null;
         try {

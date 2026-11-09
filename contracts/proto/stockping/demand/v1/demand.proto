@@ -8,6 +8,8 @@ option go_package = "stockping.dev/messaging-service/gen/stockping/demand/v1;dem
 // merchant_id comes from the server-owned channel mapping, never customer text.
 service DemandService {
   rpc ProcessCustomerMessage(ProcessCustomerMessageRequest) returns (ProcessCustomerMessageResponse);
+  rpc AuthorizeNotification(AuthorizeNotificationRequest) returns (AuthorizeNotificationResponse);
+  rpc CompleteNotification(CompleteNotificationRequest) returns (CompleteNotificationResponse);
 }
 message ProcessCustomerMessageRequest {
   string merchant_id = 1;
@@ -29,3 +31,27 @@ message ProcessCustomerMessageResponse {
   string purpose = 3;
   string correlation_id = 4;
 }
+
+message AuthorizeNotificationRequest {
+  string merchant_id = 1;
+  string notification_id = 2;
+  string availability_event_id = 3;
+  string correlation_id = 4;
+}
+message AuthorizeNotificationResponse {
+  bool eligible = 1;
+  string reason = 2;
+  string customer_phone = 3;
+  string product_name = 4;
+  string sku = 5;
+  string variant_description = 6;
+}
+// Submission outcome, not a claim of delivery. Delivery callbacks remain Messaging-owned.
+message CompleteNotificationRequest {
+  string merchant_id = 1;
+  string notification_id = 2;
+  string status = 3; // ACCEPTED, FAILED, UNKNOWN, SKIPPED
+  string reason = 4; // Stable non-PII error code.
+  string provider_message_id = 5;
+}
+message CompleteNotificationResponse {}

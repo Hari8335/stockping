@@ -41,6 +41,28 @@ func (c *Client) Send(ctx context.Context, phone, text, correlation string) (str
 	}{Product: "whatsapp", Recipient: "individual", To: strings.TrimPrefix(phone, "+"), Type: "text", Correlation: correlation}
 	payload.Text.Body = text
 	body, _ := json.Marshal(payload)
+	return c.send(ctx, body, correlation)
+}
+
+// SendTemplate supports configured, approved positional body text parameters only.
+func (c *Client) SendTemplate(ctx context.Context, phone, name, language string, parameters []string, correlation string) (string, error) {
+	values := make([]map[string]string, 0, len(parameters))
+	for _, value := range parameters {
+		values = append(values, map[string]string{"type": "text", "text": value})
+	}
+	body, err := json.Marshal(map[string]any{
+		"messaging_product": "whatsapp", "recipient_type": "individual", "to": strings.TrimPrefix(phone, "+"),
+		"type": "template", "biz_opaque_callback_data": correlation,
+		"template": map[string]any{"name": name, "language": map[string]string{"code": language},
+			"components": []any{map[string]any{"type": "body", "parameters": values}}},
+	})
+	if err != nil {
+		return "", &SendError{"provider_configuration", false}
+	}
+	return c.send(ctx, body, correlation)
+}
+
+func (c *Client) send(ctx context.Context, body []byte, correlation string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
 	if err != nil {
 		return "", &SendError{"provider_configuration", false}

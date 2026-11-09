@@ -10,8 +10,11 @@ n=0
 until docker exec "$name" pg_isready -U messaging_user -d messaging_db >/dev/null 2>&1; do
  n=$((n+1)); if [ "$n" -ge 30 ]; then exit 1; fi; sleep 1
 done
+go_cache="${TMPDIR:-/tmp}/stockping-go-cache"
+mkdir -p "$go_cache/build" "$go_cache/pkg"
 docker run --rm --network "container:$name" --user "$(id -u):$(id -g)" \
  -e GOCACHE=/tmp/go-build -e GOPATH=/tmp/go \
+ -v "$go_cache/build:/tmp/go-build" -v "$go_cache/pkg:/tmp/go/pkg" \
  -e TEST_DATABASE_URL='postgres://messaging_user:integration-test-only@127.0.0.1:5432/messaging_db?sslmode=disable' \
  -v "$root:/workspace" -w /workspace/messaging-service stockping-proto-tools \
  go test -race -tags integration -count=1 -v ./internal/store ./internal/http

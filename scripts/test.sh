@@ -7,11 +7,14 @@ if [ -z "${DOCKER_HOST:-}" ]; then
   DOCKER_HOST=$(docker context inspect --format '{{.Endpoints.docker.Host}}')
   export DOCKER_HOST
 fi
-mvn -B -ntp verify
+mvn -B -ntp clean verify
 (cd frontend && npm ci && npm test && npm run build)
 ./scripts/generate-proto.sh
+go_cache="${TMPDIR:-/tmp}/stockping-go-cache"
+mkdir -p "$go_cache/build" "$go_cache/pkg"
 docker run --rm --user "$(id -u):$(id -g)" \
   -e GOCACHE=/tmp/go-build -e GOPATH=/tmp/go \
+  -v "$go_cache/build:/tmp/go-build" -v "$go_cache/pkg:/tmp/go/pkg" \
   -v "$root:/workspace" -w /workspace/messaging-service stockping-proto-tools \
   sh -eu -c 'test -z "$(gofmt -l cmd internal /workspace/scripts/catalog-grpc-check.go /workspace/scripts/demand-grpc-check.go)"
     go vet ./...

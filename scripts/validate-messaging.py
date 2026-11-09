@@ -72,7 +72,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="stockping-stage3-") as tmp:
         override = Path(tmp) / "compose.json"
         override.write_text(json.dumps({"services": {"messaging-service": {"environment": {
-            "WHATSAPP_ENABLED": "true", "WHATSAPP_VERIFY_TOKEN": "synthetic-verify-token",
+            "STOCK_NOTIFICATIONS_ENABLED": "false", "WHATSAPP_ENABLED": "true", "WHATSAPP_VERIFY_TOKEN": "synthetic-verify-token",
             "WHATSAPP_APP_SECRET": app_secret, "WHATSAPP_ACCESS_TOKEN": "synthetic-access-token",
             "WHATSAPP_PHONE_NUMBER_ID": "200", "WHATSAPP_WABA_ID": "100", "WHATSAPP_GRAPH_API_VERSION": "v26.0",
             "WHATSAPP_MERCHANT_ID": merchant, "WHATSAPP_API_BASE_URL": f"http://{provider_name}:8080",

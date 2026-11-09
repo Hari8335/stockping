@@ -1,4 +1,20 @@
 spring:
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5673}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    connection-timeout: 2000
+    requested-heartbeat: 10
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        acknowledge-mode: manual
+        prefetch: 1
+        missing-queues-fatal: false
   application:
     name: demand-service
   datasource:
@@ -36,6 +52,9 @@ server:
     include-message: never
     include-stacktrace: never
 management:
+  health:
+    rabbit:
+      enabled: false # The transactional outbox keeps REST available during broker outages.
   endpoints:
     web:
       exposure:
@@ -70,3 +89,7 @@ demand:
   grpc-enabled: ${DEMAND_GRPC_ENABLED:false}
   grpc-port: ${DEMAND_GRPC_PORT:9092}
   service-token: ${MESSAGING_DEMAND_TOKEN:}
+
+stockping:
+  events:
+    enabled: ${STOCK_EVENTS_ENABLED:false}

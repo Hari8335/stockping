@@ -36,12 +36,14 @@ class Handler(BaseHTTPRequestHandler):
             assert self.path == "/v26.0/200/messages"
             assert self.headers.get("Authorization") == "Bearer synthetic-access-token"
             assert self.headers.get_content_type() == "application/json"
-            assert body["messaging_product"] == "whatsapp" and body["type"] == "text"
+            assert body["messaging_product"] == "whatsapp" and body["type"] in ("text", "template")
             assert body["biz_opaque_callback_data"] == self.headers.get("X-Request-ID")
             # Synthetic test traffic only. No actual Meta credentials or real customer data.
             identifier = "synthetic.out." + run_id + "." + str(len(state["requests"]) + 1)
             state["requests"].append({"id": identifier, "body": body})
-            if state["mode"] == "failure":
+            if state["mode"] == "rejected":
+                self.respond(400, {"error": {"code": 100}})
+            elif state["mode"] == "failure":
                 self.respond(503, {"error": {"code": 2}})
             else:
                 self.respond(200, {"messages": [{"id": identifier}]})
