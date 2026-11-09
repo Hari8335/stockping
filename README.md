@@ -1,8 +1,18 @@
 # StockPing
 
-StockPing is a software engineering portfolio project for capturing retail demand through WhatsApp and notifying consenting customers when an exact product variant returns to stock.
+StockPing is a full-stack, microservices-based retail demand and stock notification platform that captures customer intent through WhatsApp and automatically alerts subscribed, consenting shoppers the moment an out-of-stock product variant is replenished.
 
-**Current implementation: Stage 4 — RabbitMQ stock notifications.** Catalog records restock events in a transactional outbox; Demand consumes them, applies consent/waitlist rules and queues durable notification requests; Go Messaging revalidates eligibility over authenticated gRPC and submits configured WhatsApp templates. Automatic real-provider sends remain explicitly gated. See [Stage 4 validation and recovery](docs/stage-4-validation.md), [Messaging](docs/messaging.md), [Demand](docs/demand.md) and [Catalog](docs/catalog.md).
+**Current implementation: Stage 5 — AI Enhancements & Final System Integration.** Catalog detects restock transitions via row-level locks and transactional outbox events; Demand matches customer waitlists, enforces consent, and processes natural-language inquiries with AI; Go Messaging revalidates eligibility over authenticated gRPC and dispatches approved WhatsApp templates via Meta Cloud API or safe test providers. See [Stage 5 validation](docs/stage-5-validation.md), [Stage 4 notification pipeline](docs/stage-4-validation.md), [Architecture](docs/architecture.md), [Demand](docs/demand.md), [Catalog](docs/catalog.md), and [Messaging](docs/messaging.md).
+
+## Core Capabilities
+
+- **Microservices Architecture**: Independently deployable Spring Boot services (`catalog-service`, `demand-service`) and a high-performance Go service (`messaging-service`).
+- **Database-per-Service**: Strong data ownership using three isolated PostgreSQL databases (`catalog_db`, `demand_db`, `messaging_db`) with dedicated roles.
+- **Reliable Event-Driven Notifications**: Transactional outbox pattern with RabbitMQ quorum queues, dead-letter routing, exponential retry backoff, and idempotent consumers.
+- **WhatsApp Cloud API Integration**: Signed webhook verification, deduplication, at-most-once durable sending claims, and bidirectional message delivery tracking.
+- **AI Inquiry Understanding**: Constrained natural-language stock inquiry parsing powered by Google Gemini with a zero-credential, mixed-language (English + Singlish / colloquial slang) rule-based fallback.
+- **Conversational Waitlist Registration**: Context-aware follow-up opt-in (`YES` confirmation or `WAITLIST <SKU>`) directly from WhatsApp chat.
+- **Merchant Web Dashboard**: React + TypeScript + Material UI interface for merchant login, inventory management, waitlist audits, and an AI inquiry preview console.
 
 ## Architecture and technologies
 
@@ -138,6 +148,8 @@ python3 scripts/validate-demand.py
 python3 scripts/validate-messaging.py
 # Isolated Compose project, synthetic credentials, disposable volumes and fake provider only.
 python3 scripts/validate-stage4.py
+# Stage 5 AI query extraction and end-to-end WhatsApp Scenario A acceptance.
+python3 scripts/validate-stage5.py
 ```
 
 Go tests include configuration validation, actual HTTP health/error requests, and generated contract compatibility; the runner also checks formatting, `go vet`, the race detector and compilation. Java integration tests use disposable PostgreSQL 18 and real HTTP/gRPC servers. They test CRUD, inventory transitions/audits, concurrency/rollback, validation, tenant isolation and the preserved health/configuration boundaries. Frontend tests cover login, waitlist states, filtering, logout, expiry and confirmed opt-out. The Compose test checks all application boundaries, three owned PostgreSQL connections, all six denied cross-service database connections, and authenticated RabbitMQ management access.
@@ -156,3 +168,66 @@ Inventory updates use the existing authenticated Catalog PATCH endpoint. A zero-
 Set `WHATSAPP_STOCK_TEMPLATE_NAME`, `WHATSAPP_STOCK_TEMPLATE_LANGUAGE`, and an ordered `WHATSAPP_STOCK_TEMPLATE_PARAMETERS` list containing approved positional body fields (`product_name`, `sku`, `variant_description`). Names are never assumed approved. Intentional real-provider testing also requires `WHATSAPP_STOCK_REAL_SEND_ENABLED=true` and `WHATSAPP_STOCK_ALLOWED_RECIPIENTS` containing authorized international phone numbers. Do not enable these for automated tests. Local acceptance configures only a synthetic fake-provider template and leaves `.env` and normal volumes untouched.
 
 `GET /api/notifications` returns the authenticated merchant's latest 100 job submission outcomes. Provider delivery history remains in Messaging; `ACCEPTED` means provider submission, not delivery. See [delivery guarantees, parked rows and dead-letter recovery](docs/stage-4-validation.md).
+
+## AI-Assisted Customer Inquiry Processing
+
+In Stage 5, Demand Service introduces constrained natural-language processing for unstructured WhatsApp inquiries (e.g., `"machan s25 ultra black 512 thiyenawada?"`). Rather than introducing heavy AI microservices, vector databases, or complex RAG infrastructure, StockPing uses a lightweight, resilient extraction pipeline.
+
+### How It Works
+
+1. **Deterministic Filter First**: Exact commands (`HELP`, `STOP`, `STOCK <SKU>`) bypass AI entirely, preserving sub-millisecond deterministic guarantees.
+2. **Pluggable AI Extractor**: Free-text queries are routed through `AiExtractorService`.
+   - **Google Gemini 2.5 Flash**: If `STOCKPING_AI_API_KEY` is provided, inquiries are parsed via the Google Gemini REST API using structured JSON schema output to identify intent (`CHECK_STOCK`, `JOIN_WAITLIST`, `OPT_OUT`, `HELP`), product model, and variant attributes (color, storage capacity, size).
+   - **Rule-Based & Singlish Fallback**: If the API key is absent, disabled, rate-limited, or times out (3000ms threshold), the engine seamlessly falls back to a deterministic, zero-dependency `RuleBasedAiExtractor` capable of parsing English and colloquial Singlish expressions.
+3. **Authoritative Catalog Resolution**: The extracted model and attributes are searched against Catalog Service via internal gRPC. Authoritative stock numbers are verified directly from `catalog_db`. AI never invents or guesses stock levels.
+4. **Conversational Waitlist Follow-Up**: If the requested variant is out of stock, Demand formats a helpful WhatsApp response and caches the query in a thread-safe in-memory cache (15-minute TTL). The customer can simply reply `"YES"` or `"WAITLIST <SKU>"` to be placed on the waitlist.
+5. **Zero-PII & Safety**: Phone numbers and merchant secrets are never sent to external AI providers. AI output is strictly untrusted and cannot directly alter inventory, change prices, mutate permissions, or record consent without explicit customer action.
+6. **Merchant AI Assistant UI**: Merchants can preview and test query extraction in the React frontend (`http://localhost:5173/` -> **AI Assistant** tab), inspecting parsed attributes, catalog matches, and suggested WhatsApp replies.
+
+### AI Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `STOCKPING_AI_ENABLED` | `true` | Enable or disable natural-language query processing |
+| `STOCKPING_AI_PROVIDER` | `GEMINI` | `GEMINI` for LLM, `NONE` or `MOCK` for deterministic fallback |
+| `STOCKPING_AI_API_KEY` | `""` | Google Gemini API key (optional; system falls back safely if omitted) |
+| `STOCKPING_AI_MODEL` | `gemini-2.5-flash` | Gemini model identifier |
+| `STOCKPING_AI_TIMEOUT_MS` | `3000` | Upstream provider timeout before fallback activation |
+
+## Portfolio Demonstration Walkthrough
+
+StockPing can be demonstrated in 5 minutes using the local development stack:
+
+1. **Merchant Sign-In**:
+   - Navigate to `http://localhost:5173`.
+   - Log in with `admin@demo.stockping.local` using the `DEMO_ADMIN_PASSWORD` generated in your local `.env`.
+2. **Catalog & Inventory Setup**:
+   - Inspect existing products or create a variant (e.g., `Samsung Galaxy S25 Ultra 512GB Black`).
+   - Ensure the variant has an initial stock of `0` (Out of Stock).
+3. **Customer WhatsApp Inquiry (Natural Language)**:
+   - Simulate an incoming customer message via the signed webhook or `scripts/validate-stage5.py`:
+     ```text
+     "machan s25 ultra black 512 thiyenawada?"
+     ```
+   - StockPing extracts the model and attributes, queries Catalog gRPC, detects 0 stock, and replies:
+     ```text
+     "Samsung Galaxy S25 Ultra (512GB Black) is currently out of stock. Would you like to join the waitlist? Reply YES."
+     ```
+4. **Conversational Waitlist Registration**:
+   - The customer replies `"YES"`.
+   - Demand records `OPT_IN` consent, stores the customer record, and transitions the waitlist to `WAITING`.
+   - The merchant refreshes the **Waitlists** tab on the React dashboard to see the customer registered.
+5. **Restock Transition**:
+   - The merchant updates inventory from `0` to `10` via the authenticated Catalog endpoint:
+     `PATCH http://localhost:8081/api/variants/{variantId}/inventory` with body `{"quantity": 10}`.
+   - Catalog acquires a row-level lock, records a stock audit event, and atomically writes to `event_outbox`.
+6. **Automated Notification Dispatch**:
+   - Catalog outbox publishes `inventory.stock_available.v1` to RabbitMQ.
+   - Demand consumes the event, matches the `WAITING` waitlist entry, and publishes `notification.requested.v1`.
+   - Messaging consumes the request, re-validates customer consent and stock over gRPC, and sends the back-in-stock WhatsApp template.
+7. **Delivery Reconciliation**:
+   - Provider delivery status updates (`SENT` -> `DELIVERED` -> `READ`) reconcile in `messaging_db`.
+   - The waitlist entry automatically transitions to `NOTIFIED` on the merchant dashboard.
+8. **Customer Opt-Out**:
+   - The customer sends `"STOP"`.
+   - Demand records `OPT_OUT` consent and atomically cancels all active waitlist subscriptions.

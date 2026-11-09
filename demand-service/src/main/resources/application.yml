@@ -93,3 +93,11 @@ demand:
 stockping:
   events:
     enabled: ${STOCK_EVENTS_ENABLED:false}
+  ai:
+    enabled: ${STOCKPING_AI_ENABLED:true}
+    provider: ${STOCKPING_AI_PROVIDER:mock}
+    model: ${STOCKPING_AI_MODEL:gemini-1.5-flash}
+    api-key: ${STOCKPING_AI_API_KEY:}
+    api-url: ${STOCKPING_AI_API_URL:https://generativelanguage.googleapis.com/v1beta}
+    timeout-ms: ${STOCKPING_AI_TIMEOUT_MS:3000}
+    min-confidence: ${STOCKPING_AI_MIN_CONFIDENCE:0.70}

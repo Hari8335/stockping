@@ -56,3 +56,4 @@ For privacy questions or data-deletion requests, contact:
 **harikeshan123@gmail.com**
 
 - [Stage 4 stock notification validation and recovery](stage-4-validation.md)
+- [Stage 5 AI enhancements & final integration validation](stage-5-validation.md)

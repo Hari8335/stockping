@@ -98,7 +98,7 @@ def main():
         assert demand_sql(f"SELECT count(*) FROM customers WHERE merchant_id='{session['merchantId']}' AND whatsapp_phone='{outage_phone}';").strip() == "0"
     finally:
         compose("up", "-d", "--wait", "--wait-timeout", "180", "catalog-service", timeout=210)
-    for _ in range(10):
+    for _ in range(25):
         try:
             recovered = request(demand, "POST", "/api/waitlists", {**body, "customerPhone": outage_phone}, token, 201)
             break

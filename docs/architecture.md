@@ -68,3 +68,28 @@ Catalog still owns stock; Demand still owns consent and notification eligibility
 Delivery is at least once inside the broker/outbox pipeline. Database keys prevent duplicate jobs and durable Go claims prevent intentional repeat provider submissions. A crash in the external-send gap produces a conservative UNKNOWN outcome; it is never claimed as exactly-once delivery. Consent/availability are point-in-time checks immediately before submission; a STOP committed after authorization cannot recall an already in-flight provider request. [Stage 4 validation](stage-4-validation.md) records the complete guarantees and operational recovery boundaries.
 
 The earlier stage sections describe historical boundaries. Stage 4 supersedes their statements that RabbitMQ is infrastructure-only and that notifications are absent. The frontend stays unchanged; the existing inventory API triggers this backend flow.
+
+## Stage 5 AI enhancements & final integration
+
+Demand Service owns constrained natural-language processing for customer WhatsApp inquiries. No new AI microservice, vector database, or RAG infrastructure is added. The AI layer is an optional, modular component inside Demand that extracts product models, variant attributes (e.g. storage, color), and intent (`CHECK_STOCK`, `JOIN_WAITLIST`, `OPT_OUT`, `HELP`) from free-text customer queries.
+
+```text
+Customer WhatsApp inquiry
+  -> Go Messaging signed webhook & durable claim
+  -> Demand ProcessCustomerMessage gRPC
+  -> Deterministic check (HELP / STOP / STOCK <SKU>)
+       ↳ If natural-language query -> Demand AiExtractorService
+            ↳ Gemini REST API (timeout: 3s, zero PII, structured JSON schema)
+            ↳ Graceful fallback -> RuleBasedAiExtractor (English, Singlish, slang, abbreviations)
+  -> Catalog search & getInventory over internal gRPC
+  -> Authoritative stock check & conversational waitlist guidance
+  -> Customer follow-up ("YES" / "WAITLIST <SKU>")
+       ↳ Bounded in-memory query cache -> record consent -> create WAITING waitlist
+```
+
+Key architectural guarantees in Stage 5:
+- **Untrusted AI output**: AI output is strictly descriptive. Extracted product models and attributes are resolved against authoritative Catalog data over internal gRPC. AI predictions can never modify stock levels, mutate merchant permissions, alter consent records, or bypass database constraints.
+- **Privacy & zero-PII**: Phone numbers and customer identifiers are never transmitted to external AI providers. Only the inquiry text is evaluated.
+- **Graceful degradation**: If `stockping.ai.enabled=false`, API credentials are missing, or the upstream provider times out/fails, the service falls back transparently to `RuleBasedAiExtractor` without erroring or degrading customer-facing WhatsApp responsiveness.
+- **Merchant isolation**: The merchant-facing AI query preview endpoint (`POST /api/ai/query-preview`) and the React UI dashboard require authenticated merchant JWT claims and operate exclusively within the tenant's catalog scope.
+- **Preserved deterministic flows**: Existing deterministic `HELP`, `STOP`, and `STOCK <SKU>` flows remain 100% intact and take precedence before any AI extraction is attempted.

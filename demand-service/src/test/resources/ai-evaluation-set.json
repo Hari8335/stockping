@@ -1,0 +1,75 @@
+[
+  {
+    "id": "tc-01-s25-standard-en",
+    "query": "S25 Ultra 512 black available?",
+    "category": "standard-english",
+    "expectedIntent": "CHECK_STOCK",
+    "expectedBrand": "Samsung",
+    "expectedModel": "Galaxy S25 Ultra",
+    "expectedStorage": "512GB",
+    "expectedColor": "Black",
+    "minConfidence": 0.70,
+    "expectClarification": false
+  },
+  {
+    "id": "tc-02-s25-slang-mixed",
+    "query": "machan s25 ultra black 512 thiyenawada?",
+    "category": "mixed-language-singlish",
+    "expectedIntent": "CHECK_STOCK",
+    "expectedBrand": "Samsung",
+    "expectedModel": "Galaxy S25 Ultra",
+    "expectedStorage": "512GB",
+    "expectedColor": "Black",
+    "minConfidence": 0.70,
+    "expectClarification": false
+  },
+  {
+    "id": "tc-03-s25-abbrev-slang",
+    "query": "s25u blk 512 thiyenawada",
+    "category": "abbreviations-and-mixed-language",
+    "expectedIntent": "CHECK_STOCK",
+    "expectedBrand": "Samsung",
+    "expectedModel": "Galaxy S25 Ultra",
+    "expectedStorage": "512GB",
+    "expectedColor": "Black",
+    "minConfidence": 0.70,
+    "expectClarification": false
+  },
+  {
+    "id": "tc-04-iphone-standard",
+    "query": "Need iphone 17 pro 256 black",
+    "category": "standard-english",
+    "expectedIntent": "CHECK_STOCK",
+    "expectedBrand": "Apple",
+    "expectedModel": "iPhone 17 Pro",
+    "expectedStorage": "256GB",
+    "expectedColor": "Black",
+    "minConfidence": 0.70,
+    "expectClarification": false
+  },
+  {
+    "id": "tc-05-clarification-missing-model",
+    "query": "Do you have the silver 512 one?",
+    "category": "ambiguous-clarification",
+    "expectedIntent": "CHECK_STOCK",
+    "expectedStorage": "512GB",
+    "expectedColor": "Silver",
+    "expectClarification": true
+  },
+  {
+    "id": "tc-06-opt-out",
+    "query": "stop sending alerts",
+    "category": "opt-out",
+    "expectedIntent": "OPT_OUT",
+    "minConfidence": 0.90,
+    "expectClarification": false
+  },
+  {
+    "id": "tc-07-help",
+    "query": "help me with commands",
+    "category": "help",
+    "expectedIntent": "HELP",
+    "minConfidence": 0.90,
+    "expectClarification": false
+  }
+]
