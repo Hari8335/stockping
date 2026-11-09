@@ -136,3 +136,46 @@ test('customer opt-out requires confirmation and refreshes the list', async () =
   fireEvent.click(screen.getByRole('button', { name: 'Confirm opt-out' }));
   await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === '/api/customers/customer/opt-out')).toBe(true));
 });
+
+test('navigates to AI Assistant and renders inquiry tester', async () => {
+  render(<App />); login();
+  await screen.findByRole('heading', { name: 'No waitlist requests' });
+  fireEvent.click(screen.getByRole('button', { name: 'AI Assistant' }));
+  expect(await screen.findByRole('heading', { name: 'AI Stock Query Assistant' })).toBeVisible();
+  expect(screen.getByText('S25 Ultra 512 black available?')).toBeVisible();
+  expect(screen.getByLabelText(/Customer WhatsApp message/)).toBeVisible();
+});
+
+test('submitting inquiry in AI Assistant displays parsed entities, stock status and suggested reply', async () => {
+  const aiMock = {
+    query: 'S25 Ultra 512 black available?',
+    intent: 'CHECK_STOCK',
+    confidence: 0.94,
+    needsClarification: false,
+    clarificationPrompt: '',
+    extracted: { productPhrase: 'S25 Ultra', brand: 'Samsung', model: 'Galaxy S25 Ultra', attributes: { storage: '512GB', color: 'Black' } },
+    catalogStatus: 'MATCHED',
+    matchedVariant: { variantId: '11111111-1111-1111-1111-111111111111', sku: 'S25U-512-BLK', productName: 'Samsung Galaxy S25 Ultra', brand: 'Samsung', attributes: { storage: '512GB', color: 'Black' }, available: false, quantity: 0 },
+    suggestedReply: 'Samsung Galaxy S25 Ultra (S25U-512-BLK) is currently out of stock. Would you like to be notified when it arrives? Reply YES or send WAITLIST S25U-512-BLK to join the waitlist.',
+    purpose: 'STOCK_WAITLIST_OFFER',
+    disclaimer: 'AI output is advisory. Stock availability is authoritatively verified by Catalog Service.',
+    provider: 'mock',
+    latencyMs: 15,
+  };
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url.endsWith('/login')) return response(session);
+    if (url.includes('/query-preview')) return response(aiMock);
+    return response(empty);
+  });
+  render(<App />); login();
+  await screen.findByRole('heading', { name: 'No waitlist requests' });
+  fireEvent.click(screen.getByRole('button', { name: 'AI Assistant' }));
+  await screen.findByRole('heading', { name: 'AI Stock Query Assistant' });
+
+  fireEvent.click(screen.getByText('S25 Ultra 512 black available?'));
+  expect(await screen.findByText('Extraction & Stock Resolution')).toBeVisible();
+  expect(screen.getByText('94% confidence')).toBeVisible();
+  expect(screen.getByText('Samsung Galaxy S25 Ultra')).toBeVisible();
+  expect(screen.getByText(/Out of Stock \(0 units\)/)).toBeVisible();
+  expect(screen.getByText(new RegExp(aiMock.disclaimer))).toBeVisible();
+});

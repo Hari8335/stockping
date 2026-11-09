@@ -2,11 +2,13 @@ import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Container, Paper, Stack, TextField, Typography } from '@mui/material';
 import { api, type Session } from './api';
 const WaitlistScreen = lazy(() => import('./WaitlistScreen'));
+const AiAssistantScreen = lazy(() => import('./AiAssistantScreen'));
 
 export default function App() {
   // Memory only: reload and tab closure require login. No password/token persistence.
   const [session, setSession] = useState<Session | null>(null);
   const [notice, setNotice] = useState('');
+  const [tab, setTab] = useState<'waitlist' | 'ai'>('waitlist');
 
   function expire(token: string) {
     setSession(current => current?.accessToken === token ? null : current);
@@ -34,12 +36,29 @@ export default function App() {
               <Typography component="h1" variant="h4" sx={{ fontWeight: 700 }}>StockPing</Typography>
               <Typography color="text.secondary">Merchant waitlists</Typography>
             </Box>
-            {session && <Button onClick={logout}>Log out</Button>}
+            {session && (
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                <Button variant={tab === 'waitlist' ? 'contained' : 'outlined'} size="small" onClick={() => setTab('waitlist')}>
+                  Waitlist
+                </Button>
+                <Button variant={tab === 'ai' ? 'contained' : 'outlined'} size="small" onClick={() => setTab('ai')}>
+                  AI Assistant
+                </Button>
+                <Button onClick={logout} color="inherit">Log out</Button>
+              </Stack>
+            )}
           </Stack>
-          {session ? <Suspense fallback={<Typography role="status">Loading merchant tools…</Typography>}>
-            <WaitlistScreen key={session.accessToken} session={session} onExpired={() => expire(session.accessToken)} />
-          </Suspense>
-            : <Login notice={notice} onLogin={value => { setSession(value); setNotice(''); }} />}
+          {session ? (
+            <Suspense fallback={<Typography role="status">Loading merchant tools…</Typography>}>
+              {tab === 'waitlist' ? (
+                <WaitlistScreen key={session.accessToken} session={session} onExpired={() => expire(session.accessToken)} />
+              ) : (
+                <AiAssistantScreen key={session.accessToken} session={session} onExpired={() => expire(session.accessToken)} />
+              )}
+            </Suspense>
+          ) : (
+            <Login notice={notice} onLogin={value => { setSession(value); setNotice(''); }} />
+          )}
         </Stack>
       </Container>
     </Box>

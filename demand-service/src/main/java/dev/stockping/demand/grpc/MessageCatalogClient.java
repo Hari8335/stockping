@@ -14,6 +14,9 @@ import org.springframework.stereotype.Component;
 public class MessageCatalogClient {
     public record Stock(String name, boolean available) {}
     public record NotificationStock(String productId, String name, String sku, String description, boolean available) {}
+    public record SearchCandidate(UUID variantId, UUID productId, String sku, String productName, String brand, Map<String, String> attributes) {}
+    public record SearchOutcome(ResolutionStatus status, List<SearchCandidate> candidates, long totalMatches) {}
+    public record VariantInventory(UUID variantId, int quantity, boolean available) {}
     private final ManagedChannel channel;
     private final String token;
     private final long timeout;
@@ -72,5 +75,59 @@ public class MessageCatalogClient {
             return Optional.of(new NotificationStock(variant.getProductId(), variant.getProductName(), variant.getSku(),
                     description.isEmpty() ? variant.getSku() : description, inventory.getQuantity() > 0));
         } catch (StatusRuntimeException e) { throw unavailable(); }
+    }
+
+    public SearchOutcome search(UUID merchant, String productName, String brand, String sku, Map<String, String> attributes, String correlation) {
+        if (token.length() < 32) throw unavailable();
+        Metadata headers = new Metadata();
+        headers.put(Metadata.Key.of("x-service-token", Metadata.ASCII_STRING_MARSHALLER), token);
+        headers.put(Metadata.Key.of("x-merchant-id", Metadata.ASCII_STRING_MARSHALLER), merchant.toString());
+        headers.put(Metadata.Key.of("x-request-id", Metadata.ASCII_STRING_MARSHALLER), correlation);
+        var client = CatalogServiceGrpc.newBlockingStub(channel).withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers))
+                .withDeadlineAfter(timeout, TimeUnit.MILLISECONDS);
+        try {
+            var req = ResolveProductVariantRequest.newBuilder().setMerchantId(merchant.toString());
+            if (productName != null && !productName.isBlank()) req.setProductName(productName.trim());
+            if (brand != null && !brand.isBlank()) req.setBrand(brand.trim());
+            if (sku != null && !sku.isBlank()) req.setSku(sku.trim());
+            if (attributes != null && !attributes.isEmpty()) {
+                attributes.forEach((k, v) -> {
+                    if (k != null && v != null && !k.isBlank() && !v.isBlank()) {
+                        String key = k.trim().toLowerCase(Locale.ROOT);
+                        if (key.equals("colour")) key = "color";
+                        req.putAttributes(key, v.trim());
+                    }
+                });
+            }
+            var resolved = client.resolveProductVariant(req.build());
+            List<SearchCandidate> candidates = new ArrayList<>();
+            for (var c : resolved.getCandidatesList()) {
+                candidates.add(new SearchCandidate(
+                        UUID.fromString(c.getVariantId()),
+                        UUID.fromString(c.getProductId()),
+                        c.getSku(),
+                        c.getProductName(),
+                        c.getBrand(),
+                        new TreeMap<>(c.getAttributesMap())
+                ));
+            }
+            return new SearchOutcome(resolved.getStatus(), candidates, resolved.getTotalMatches());
+        } catch (StatusRuntimeException | IllegalArgumentException e) { throw unavailable(); }
+    }
+
+    public VariantInventory getInventory(UUID merchant, UUID variantId, String correlation) {
+        if (token.length() < 32) throw unavailable();
+        Metadata headers = new Metadata();
+        headers.put(Metadata.Key.of("x-service-token", Metadata.ASCII_STRING_MARSHALLER), token);
+        headers.put(Metadata.Key.of("x-merchant-id", Metadata.ASCII_STRING_MARSHALLER), merchant.toString());
+        headers.put(Metadata.Key.of("x-request-id", Metadata.ASCII_STRING_MARSHALLER), correlation);
+        var client = CatalogServiceGrpc.newBlockingStub(channel).withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers))
+                .withDeadlineAfter(timeout, TimeUnit.MILLISECONDS);
+        try {
+            var inventory = client.getInventory(GetInventoryRequest.newBuilder()
+                    .setMerchantId(merchant.toString()).setVariantId(variantId.toString()).build());
+            if (inventory.getQuantity() < 0) throw unavailable();
+            return new VariantInventory(variantId, inventory.getQuantity(), inventory.getQuantity() > 0);
+        } catch (StatusRuntimeException | IllegalArgumentException e) { throw unavailable(); }
     }
 }

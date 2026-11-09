@@ -44,3 +44,32 @@ export async function api<T>(path: string, token?: string, options: RequestInit 
 export function maskedPhone(phone: string) {
   return `${phone.slice(0, 3)}${'•'.repeat(Math.max(0, phone.length - 7))}${phone.slice(-4)}`;
 }
+
+export interface AiQueryResponse {
+  query: string;
+  intent: string;
+  confidence: number;
+  needsClarification: boolean;
+  clarificationPrompt: string;
+  extracted: {
+    productPhrase: string;
+    brand: string;
+    model: string;
+    attributes: Record<string, string>;
+  };
+  catalogStatus: string;
+  matchedVariant: {
+    variantId: string;
+    sku: string;
+    productName: string;
+    brand: string;
+    attributes: Record<string, string>;
+    available: boolean;
+    quantity: number;
+  } | null;
+  suggestedReply: string;
+  purpose: string;
+  disclaimer: string;
+  provider: string;
+  latencyMs: number;
+}
