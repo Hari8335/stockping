@@ -6,5 +6,7 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 public interface ProductVariantRepository extends JpaRepository<ProductVariant, UUID>, JpaSpecificationExecutor<ProductVariant> {
     java.util.Optional<ProductVariant> findByIdAndMerchantId(UUID id, UUID merchantId);
     java.util.List<ProductVariant> findByProductIdAndMerchantIdOrderById(UUID productId, UUID merchantId);
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "product")
+    java.util.List<ProductVariant> findByMerchantIdAndIdIn(UUID merchantId, java.util.Collection<UUID> ids);
     boolean existsByMerchantIdAndSkuAndIdNot(UUID merchantId, String sku, UUID id);
 }

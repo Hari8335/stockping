@@ -48,6 +48,8 @@ public class CatalogController {
         });
         return catalog.search(new VariantCriteria(productName,brand,sku,status,attributes),page,size);
     }
+    @GetMapping("/variants/lookup")
+    public List<VariantSummary> variantSummaries(@RequestParam List<UUID> ids) { return catalog.variantSummaries(ids); }
     @GetMapping("/variants/{id}/inventory") public InventoryView inventory(@PathVariable UUID id) { return catalog.getInventory(id); }
     @PatchMapping("/variants/{id}/inventory") public InventoryUpdate updateInventory(@PathVariable UUID id, @Valid @RequestBody UpdateInventory request) {
         return catalog.updateInventory(id, request);

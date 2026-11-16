@@ -44,7 +44,8 @@ public class CatalogService {
             if (status != null) predicates.add(b.equal(r.get("status"), status));
             return b.and(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
         };
-        var result = products.findAll(spec, PageRequest.of(page, size, Sort.by("id")));
+        var result = products.findAll(spec, PageRequest.of(page, size,
+                Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))));
         return new PageView<>(result.getContent().stream().map(ProductView::from).toList(), result.getTotalElements(), page, size);
     }
     public ProductDetail getProduct(UUID id) {
@@ -114,6 +115,17 @@ public class CatalogService {
     public InventoryView getInventory(UUID variantId) {
         return InventoryView.from(inventories.findByVariantIdAndMerchantId(variantId, merchants.currentMerchantId())
                 .orElseThrow(ResourceNotFoundException::new));
+    }
+    public List<VariantSummary> variantSummaries(List<UUID> ids) {
+        if (ids == null || ids.isEmpty() || ids.size() > 100) throw new IllegalArgumentException("Provide 1 to 100 variant IDs");
+        UUID merchant = merchants.currentMerchantId();
+        var unique = new LinkedHashSet<>(ids);
+        var stock = new HashMap<UUID, Integer>();
+        inventories.findByMerchantIdAndVariantIdIn(merchant, unique)
+                .forEach(i -> stock.put(i.getVariantId(), i.getQuantity()));
+        return variants.findByMerchantIdAndIdIn(merchant, unique).stream()
+                .map(v -> new VariantSummary(v.getId(), v.getProduct().getName(), v.getSku(), v.getAttributes(), stock.get(v.getId())))
+                .toList();
     }
     @Transactional
     public InventoryUpdate updateInventory(UUID variantId, @NotNull @Valid UpdateInventory request) {

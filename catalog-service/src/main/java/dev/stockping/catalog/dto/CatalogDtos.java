@@ -41,6 +41,7 @@ public final class CatalogDtos {
                 i.getAvailabilityStatus(), i.getUpdatedAt()); }
     }
     public record InventoryUpdate(InventoryView inventory, boolean changed, boolean restockTransition, UUID stockEventId) {}
+    public record VariantSummary(UUID id, String productName, String sku, Map<String,String> attributes, Integer quantity) {}
     public record PageView<T>(List<T> items, long totalElements, int page, int size) {}
     public enum Resolution { MATCHED, NOT_FOUND, AMBIGUOUS }
     public record SearchResult(Resolution resolutionStatus, List<VariantView> candidates, long totalMatches, int page, int size) {}

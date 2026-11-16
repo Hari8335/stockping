@@ -92,6 +92,22 @@ class CatalogIntegrationTest extends PostgresTest {
         assertEquals(200,updated.statusCode()); assertEquals("INACTIVE",JsonPath.read(updated.body(),"$.status"));
         assertEquals(0,JsonPath.<Integer>read(call("GET","/api/products?status=ACTIVE",null).body(),"$.totalElements"));
     }
+    @Test void variantLookupRequiresAuthenticationAndScopesInventoryToMerchant() throws Exception {
+        String variant = createVariant(createProduct(), "LOOKUP-1", "512GB", "Black");
+        String missing = UUID.randomUUID().toString();
+        var path = "/api/variants/lookup?ids=" + variant + "," + missing;
+        assertEquals(401, callAs(null, "GET", path, null).statusCode());
+        assertEquals(200, callAs(TestTokens.token(B), "GET", path, null).statusCode());
+        assertEquals(0, JsonPath.<List<?>>read(callAs(TestTokens.token(B), "GET", path, null).body(), "$").size());
+        var own = call("GET", path, null);
+        assertEquals(200, own.statusCode(), own.body());
+        assertEquals(1, JsonPath.<List<?>>read(own.body(), "$").size());
+        assertEquals("Galaxy S25 Ultra", JsonPath.read(own.body(), "$[0].productName"));
+        assertEquals("LOOKUP-1", JsonPath.read(own.body(), "$[0].sku"));
+        assertEquals(0, JsonPath.<Integer>read(own.body(), "$[0].quantity"));
+        assertFalse(own.body().contains(missing));
+        assertError(400, call("GET", "/api/variants/lookup?ids=bad", null));
+    }
     @Test void variantUpdateAndSkuUniqueness() throws Exception {
         String product = createProduct(); String first = createVariant(product,"ONE","512GB","Black");
         String second = createVariant(product,"TWO","256GB","Silver");
