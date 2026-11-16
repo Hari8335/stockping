@@ -12,7 +12,7 @@ StockPing is a full-stack, microservices-based retail demand and stock notificat
 - **WhatsApp Cloud API Integration**: Signed webhook verification, deduplication, at-most-once durable sending claims, and bidirectional message delivery tracking.
 - **AI Inquiry Understanding**: Constrained natural-language stock inquiry parsing powered by Google Gemini with a zero-credential, mixed-language (English + Singlish / colloquial slang) rule-based fallback.
 - **Conversational Waitlist Registration**: Context-aware follow-up opt-in (`YES` confirmation or `WAITLIST <SKU>`) directly from WhatsApp chat.
-- **Merchant Web Dashboard**: React + TypeScript + Material UI interface for merchant login, inventory management, waitlist audits, and an AI inquiry preview console.
+- **Merchant Web Dashboard & Landing Page**: React + TypeScript + Material UI application with a contemporary retail operations aesthetic. Features a public landing page (`/`), merchant sign-in (`/login`), inventory and variant management (`/app/products`), customer waitlist tracking with consent enforcement (`/app/waitlists`), notification history audit (`/app/notifications`), and an AI inquiry preview console (`/app/ai`). See [Frontend Validation](docs/frontend-completion-validation.md).
 
 ## Architecture and technologies
 
@@ -152,7 +152,7 @@ python3 scripts/validate-stage4.py
 python3 scripts/validate-stage5.py
 ```
 
-Go tests include configuration validation, actual HTTP health/error requests, and generated contract compatibility; the runner also checks formatting, `go vet`, the race detector and compilation. Java integration tests use disposable PostgreSQL 18 and real HTTP/gRPC servers. They test CRUD, inventory transitions/audits, concurrency/rollback, validation, tenant isolation and the preserved health/configuration boundaries. Frontend tests cover login, waitlist states, filtering, logout, expiry and confirmed opt-out. The Compose test checks all application boundaries, three owned PostgreSQL connections, all six denied cross-service database connections, and authenticated RabbitMQ management access.
+Go tests include configuration validation, actual HTTP health/error requests, and generated contract compatibility; the runner also checks formatting, `go vet`, the race detector and compilation. Java integration tests use disposable PostgreSQL 18 and real HTTP/gRPC servers. They test CRUD, inventory transitions/audits, concurrency/rollback, validation, tenant isolation and the preserved health/configuration boundaries. Frontend tests cover login/logout, dashboard loading, product and inventory workflows, waitlist states and consent, notification dispatch-state presentation, AI preview, filtering, and session expiry. The Compose test checks all application boundaries, three owned PostgreSQL connections, all six denied cross-service database connections, and authenticated RabbitMQ management access.
 
 GitHub Actions runs these checks on push/PR, including a full Compose startup. Catalog regressions remain covered; Stage 2 adds JWT security, Demand persistence/concurrency, consent, tenant isolation and a real gRPC client. Stage 3 adds signed webhook, PostgreSQL duplicate/concurrency, provider-adapter and real Go → Java validation. Stage 4 adds transactional outboxes, notification idempotency, template safety gates and isolated real-broker acceptance. [Engineering requirements](docs/engineering-quality.md) define the feature-specific test gates for subsequent stages. [Stage 0 evidence](docs/stage-0-validation.md) is preserved; [Stage 1 evidence](docs/stage-1-validation.md) records the Catalog slice; [Stage 2 evidence](docs/stage-2-validation.md) records Demand.
 
@@ -177,8 +177,8 @@ In Stage 5, Demand Service introduces constrained natural-language processing fo
 
 1. **Deterministic Filter First**: Exact commands (`HELP`, `STOP`, `STOCK <SKU>`) bypass AI entirely, preserving sub-millisecond deterministic guarantees.
 2. **Pluggable AI Extractor**: Free-text queries are routed through `AiExtractorService`.
-   - **Google Gemini 2.5 Flash**: If `STOCKPING_AI_API_KEY` is provided, inquiries are parsed via the Google Gemini REST API using structured JSON schema output to identify intent (`CHECK_STOCK`, `JOIN_WAITLIST`, `OPT_OUT`, `HELP`), product model, and variant attributes (color, storage capacity, size).
-   - **Rule-Based & Singlish Fallback**: If the API key is absent, disabled, rate-limited, or times out (3000ms threshold), the engine seamlessly falls back to a deterministic, zero-dependency `RuleBasedAiExtractor` capable of parsing English and colloquial Singlish expressions.
+   - **Google Gemini 2.5 Flash**: If `STOCKPING_AI_API_KEY` is provided, inquiries may be parsed via the Google Gemini REST API using structured JSON schema output to identify intent (`CHECK_STOCK`, `JOIN_WAITLIST`, `OPT_OUT`, `HELP`), product model, and variant attributes (color, storage capacity, size).
+   - **Rule-Based & Singlish Fallback**: If the API key is absent, disabled, rate-limited, or times out (3000ms threshold), the engine falls back to a deterministic, zero-dependency `RuleBasedAiExtractor` capable of parsing English and colloquial Singlish expressions. Preview results should be treated as rule-based or configuration-dependent, not as guaranteed Gemini output.
 3. **Authoritative Catalog Resolution**: The extracted model and attributes are searched against Catalog Service via internal gRPC. Authoritative stock numbers are verified directly from `catalog_db`. AI never invents or guesses stock levels.
 4. **Conversational Waitlist Follow-Up**: If the requested variant is out of stock, Demand formats a helpful WhatsApp response and caches the query in a thread-safe in-memory cache (15-minute TTL). The customer can simply reply `"YES"` or `"WAITLIST <SKU>"` to be placed on the waitlist.
 5. **Zero-PII & Safety**: Phone numbers and merchant secrets are never sent to external AI providers. AI output is strictly untrusted and cannot directly alter inventory, change prices, mutate permissions, or record consent without explicit customer action.
@@ -193,6 +193,74 @@ In Stage 5, Demand Service introduces constrained natural-language processing fo
 | `STOCKPING_AI_API_KEY` | `""` | Google Gemini API key (optional; system falls back safely if omitted) |
 | `STOCKPING_AI_MODEL` | `gemini-2.5-flash` | Gemini model identifier |
 | `STOCKPING_AI_TIMEOUT_MS` | `3000` | Upstream provider timeout before fallback activation |
+
+## Merchant Application & Frontend Experience
+
+StockPing provides a production-grade merchant interface and public landing page built with React 19, TypeScript, Material UI 9, and Vite, styled in a restrained contemporary retail operations design language (warm off-white canvas, deep ink typography, muted teal accents, soft amber alerts).
+
+### Screens & Features
+
+1. **Public Landing Page (`/`)**:
+   - Original vector brand identity (inventory bar chart signal with restock notification ping).
+   - Core value proposition: *"Out of stock shouldn't mean out of touch."*
+   - Interactive live product demonstration card with real in-stock/out-of-stock and waiting indicators.
+   - Five-step operational walkthrough and comprehensive feature matrix.
+   - Direct merchant sign-in navigation.
+2. **Merchant Sign-In (`/login`)**:
+   - Secure login form with in-memory credential management (no passwords or tokens in `localStorage`/`sessionStorage`).
+   - Server-side error handling and auto-expiring session timers matching JWT validity.
+3. **Merchant Dashboard (`/app`)**:
+   - Real-time KPI summaries populated directly from `GET /api/analytics/demand`: Active Requests, Waiting Customers, Tracked Variants, and Top Demanded Variant.
+   - Demand ranking breakdown of top variants by active customer interest.
+   - Quick action shortcuts to primary merchant workflows.
+4. **Products & Inventory (`/app/products`)**:
+   - Searchable product catalog with brand and name filtering.
+   - Product creation modal (Name, Brand, Category, Status).
+   - Variant management with SKU, pricing, and dynamic key-value attributes.
+   - In-modal stock updates communicating restock trigger events to waiting customers.
+5. **Customer Waitlists (`/app/waitlists`)**:
+   - Status filters (`WAITING`, `NOTIFIED`, `FULFILLED`, etc.) and variant UUID filters.
+   - Masked customer phone numbers (`+94•••••4567`) preserving merchant privacy.
+   - Dedicated consent indicators (`Opted in`, `Opted out`, `Not recorded`).
+   - Merchant-assisted waitlist registration requiring explicit customer consent confirmation.
+   - Safe customer opt-out modal with explicit confirmation.
+6. **Notification History (`/app/notifications`)**:
+   - Audit trail of the recent 100 notification jobs from `GET /api/notifications`.
+   - Dispatch job states include `QUEUED`, `AUTHORIZED`, `ACCEPTED`, `FAILED`, and `SKIPPED`.
+   - `ACCEPTED` means provider submission; provider `SENT`, `DELIVERED`, and `READ` receipts are not exposed by this UI.
+7. **AI Stock Query Assistant (`/app/ai`)**:
+   - Real-time preview console testing natural language customer WhatsApp messages.
+   - One-click sample queries including English, mixed-language, and colloquial inquiries.
+   - Extraction inspector showing recognized Brand, Model, Product Phrase, and attributes.
+   - Authoritative catalog resolution match card with real-time stock levels.
+   - Confidence meter and suggested WhatsApp reply.
+
+### Running Frontend Locally
+
+```sh
+cd frontend
+npm ci
+npm test        # Runs all 39 unit and integration tests
+npm run build   # Verifies TypeScript types and creates optimized production bundle
+npm run dev     # Starts local Vite development server on http://localhost:5173
+```
+
+### Local Demo Sign-In
+
+1. Initialize local environment: `python3 scripts/init-local-env.py`.
+2. Inspect your private `.env` to locate `DEMO_ADMIN_PASSWORD` (never commit or expose this value).
+3. Open `http://localhost:5173/login`.
+4. Sign in with:
+   - **Email**: `admin@demo.stockping.local` (or value of `DEMO_ADMIN_EMAIL`)
+   - **Password**: value from `DEMO_ADMIN_PASSWORD` in your private `.env`
+
+### Known Limitations
+
+- **In-Memory Sessions**: Authentication credentials/tokens are held in memory; browser refresh requires reauthentication.
+- **Waitlist Registration**: Merchant-assisted registration currently requires a variant UUID; a product/variant picker is deferred.
+- **Provider Receipts**: Notifications exposes dispatch job states such as `ACCEPTED`, but not provider delivery receipts.
+- **AI Preview**: Inquiry previews may use rule-based interpretation; Gemini behavior is configuration-dependent.
+- **Product Success Feedback**: Product-success feedback is implemented and covered by automated tests, but has not been independently verified in the browser.
 
 ## Portfolio Demonstration Walkthrough
 

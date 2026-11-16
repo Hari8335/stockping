@@ -145,28 +145,34 @@ Stage 4 acceptance uses prebuilt `stockping-*-service:latest` images. It creates
 Stage 4 implementation and local verification are fully complete. All test suites and end-to-end acceptance scenarios were executed and passed:
 
 1. **Java Full Regression (`./scripts/test.sh` / `mvn -B -ntp clean verify`)**:
-   - Total: **157 tests passed; 0 failures, 0 errors, 0 skipped** across all 4 Java reactor modules (increased from 140 in Stage 3; 17 new tests added, 0 removed or weakened).
+   - The Stage 4 reactor run recorded **157 tests passed; 0 failures, 0 errors, 0 skipped** across all 4 Java reactor modules (the historical Stage 4 baseline).
    - `stockping-contracts`: 2 tests passed (`ProbeContractTest`, `CatalogContractTest`).
    - `stockping-security`: 12 tests passed (`TokenConfigurationTest`).
-   - `catalog-service`: 43 tests passed (up from 41 in Stage 3; 2 new integration tests covering availability transition detection and outbox persistence).
+   - `catalog-service`: the historical Stage 4 run recorded 43 tests; the current focused Catalog run is recorded separately below.
    - `demand-service`: 100 tests passed (up from 85 in Stage 3; 15 new integration tests in `NotificationIntegrationTest` covering eligibility, consent, idempotency, and outbox creation).
    - Script `./scripts/test.sh` completed with exit code 0.
 
 2. **Frontend Test Suite & Production Build**:
-   - `vitest run`: 12 tests passed covering merchant login, waitlist loading/filtering/rendering, and confirmed opt-out.
-   - `tsc -b && vite build`: compiled production bundles without warnings.
+   - `vitest run`: **39 tests passed**.
+   - `tsc -b && vite build`: production build passed.
 
-3. **Go Messaging Verification**:
+3. **Catalog Test Suite**:
+   - **46 tests passed**, including **21 Catalog integration tests**.
+
+4. **Git validation**:
+   - `git diff --check` passed with no whitespace errors.
+
+5. **Go Messaging Verification**:
    - `gofmt` and `go vet`: clean.
    - `go test -race ./...`: all unit test suites in `internal/config`, `internal/contracts`, `internal/http`, `internal/rabbitmq`, and `internal/whatsapp` passed with the race detector enabled.
    - Containerized build of `cmd/messaging`, `catalog-grpc-check`, and `demand-grpc-check` succeeded.
 
-4. **Messaging Database Integration (`./scripts/test-messaging-db.sh`)**:
+6. **Messaging Database Integration (`./scripts/test-messaging-db.sh`)**:
    - Executed against a disposable PostgreSQL container.
    - Verified schema migration `002_notifications.sql` with checksum validation under advisory locks.
    - Passed `TestNotificationConcurrentClaimsAndReplaySendOnce`, `TestNotificationFailureAndUncertaintyNeverResend`, `TestNotificationConsentAndChannelSuppressSending`, `TestNotificationInternalFailureRecoversBeforeClaim`, `TestInterruptedNotificationRecoveryNeverCallsProvider`, and all signed webhook tests.
 
-5. **Stage 4 End-to-End Acceptance (`python3 scripts/validate-stage4.py`)**:
+7. **Stage 4 End-to-End Acceptance (`python3 scripts/validate-stage4.py`)**:
    - Ran in an isolated Compose project (`stockping-stage4-*`) with synthetic credentials, unique loopback ports, and a controlled mock WhatsApp provider.
    - `PASS`: Concurrent inventory PATCH commits exactly one outbox row and publishes a single availability event to RabbitMQ.
    - `PASS`: Demand identifies eligible waitlisted customer and queues notification request.
@@ -182,11 +188,36 @@ Stage 4 implementation and local verification are fully complete. All test suite
    - `PASS`: Transient Catalog gRPC outage during consumption routes event to dead-letter queue after bounded retries; poison/invalid event versions dead-letter without crashing consumers.
    - Complete isolated test suite passed; disposable containers and volumes were removed with zero pollution of the main environment.
 
-6. **Stage 0–3 Regression Verification**:
+8. **Stage 0–3 Regression Verification**:
    - `python3 scripts/smoke-test.py`: All 8 HTTP and database health/isolation checks passed.
    - `python3 scripts/validate-catalog.py`: Catalog REST restock transitions and gRPC inventory resolution passed.
    - `python3 scripts/validate-demand.py`: Authentication, waitlists, consent history, Catalog outage handling, and logout passed.
    - `python3 scripts/validate-messaging.py`: All 8 signed WhatsApp webhook, HELP/STOCK/STOP handling, and delivery callback reconciliation scenarios passed.
 
 ### Real Meta WhatsApp Cloud API Acceptance
-Real Meta Cloud API testing requires an active Meta Business Account, an approved template (e.g. matching `WHATSAPP_STOCK_TEMPLATE_NAME` and parameters), and explicit configuration of `WHATSAPP_STOCK_REAL_SEND_ENABLED=true` with authorized international numbers in `WHATSAPP_STOCK_ALLOWED_RECIPIENTS`. As defined by project specifications, automated local acceptance safely mocks the external provider so no external Meta credentials or live charges are required.
+
+The final controlled real-provider restock test passed (outcome recorded 2026-11-13, Asia/Colombo). One isolated test variant moved from 0 to 1 in stock. Exactly one opted-in recipient was targeted, one notification job was created, and exactly one Meta Cloud API send attempt occurred.
+
+Signed webhook callbacks progressed through `SENT` -> `DELIVERED` -> `READ`. The recipient personally confirmed receiving the WhatsApp message, and the waitlist transitioned to `NOTIFIED`. The callback history and recipient confirmation establish delivery; the provider send result alone would establish only submission.
+
+After the test, both real-send safety flags were disabled again. All six Docker services remained healthy, and the live RabbitMQ work queues were empty. Two historical stock-event dead letters were left untouched. No phone numbers, access tokens or private identifiers are included in this record.
+
+This real-provider result supplements the isolated fake-provider acceptance above; automated local acceptance continues to use a mock provider without external Meta credentials or live sends.
+
+## Manual acceptance testing — 16 November 2026
+
+- Valid login and logout passed; invalid passwords were correctly rejected.
+- Product and variant creation passed.
+- Inventory update from `0` to `5` passed, and the inventory availability display bug was fixed and manually verified.
+- Currency formatting and newest-first ordering were verified.
+- In-stock waitlist registration was correctly rejected; out-of-stock registration passed with explicit customer consent recorded.
+- Test-customer opt-out passed and the active request count decreased.
+- Dashboard, Waitlists, Notifications, and AI preview were verified against running services.
+
+## Known MVP limitations
+
+- Browser refresh requires reauthentication because credentials are held in memory.
+- Waitlist registration currently requires a variant UUID.
+- The Notifications UI exposes dispatch job states such as `ACCEPTED` but does not expose provider delivery receipts.
+- AI inquiry previews may use rule-based interpretation; Gemini integration is configuration-dependent.
+- A newly added product-success notification is implemented and covered by automated tests but has not been independently verified in the browser.
