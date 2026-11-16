@@ -106,4 +106,34 @@ class AiEvaluationSetTest {
         assertEquals("Silver", res.attributes().get("color"));
         assertEquals("256GB", res.attributes().get("storage"));
     }
+
+    @Test
+    void tanglishAndCatalogMisspellingAreRecognized() {
+        ProductExtractionResult res = extractor.extract("Samsun S25 ultra irukka?", "corr-tanglish");
+        assertEquals(AiIntent.CHECK_STOCK, res.intent());
+        assertEquals("Samsung", res.brand());
+        assertEquals("Galaxy S25 Ultra", res.model());
+        assertFalse(res.needsClarification());
+    }
+
+    @Test
+    void tanglishAttributesAndIphoneSixteenAreRecognized() {
+        ProductExtractionResult res = extractor.extract("iPhone 16 black colour iruka?", "corr-tanglish-iphone");
+        assertEquals("iPhone 16", res.model());
+        assertEquals("Black", res.attributes().get("color"));
+    }
+
+    @Test
+    void tanglishWaitlistWithoutProductAsksForModel() {
+        ProductExtractionResult res = extractor.extract("Stock vandha sollunga", "corr-tanglish-waitlist");
+        assertEquals(AiIntent.JOIN_WAITLIST, res.intent());
+        assertTrue(res.needsClarification());
+    }
+
+    @Test
+    void priceInquiryIsHandledWithoutInventingPrice() {
+        ProductExtractionResult res = extractor.extract("Price enna?", "corr-price");
+        assertTrue(res.needsClarification());
+        assertTrue(res.clarificationPrompt().contains("Price details"));
+    }
 }

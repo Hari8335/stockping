@@ -14,10 +14,11 @@ public class RuleBasedAiExtractor implements AiExtractor {
 
     private static final Pattern OPT_OUT_PATTERN = Pattern.compile("(?i)\\b(stop|unsubscribe|cancel|opt\\s*out|dont\\s*send|don't\\s*send|stop\\s*sending)\\b");
     private static final Pattern HELP_PATTERN = Pattern.compile("(?i)\\b(help|commands|how\\s*does\\s*this\\s*work|info|menu)\\b");
-    private static final Pattern WAITLIST_PATTERN = Pattern.compile("(?i)\\b(waitlist|notify\\s*me|alert\\s*me|join\\s*waitlist|add\\s*me)\\b");
+    private static final Pattern WAITLIST_PATTERN = Pattern.compile("(?i)\\b(waitlist|notify\\s*me|alert\\s*me|join\\s*waitlist|add\\s*me|stock\\s+vandha\\s+sollunga)\\b");
+    private static final Pattern PRICE_PATTERN = Pattern.compile("(?i)\\b(price|vilai)\\b");
 
     private static final Pattern STORAGE_PATTERN = Pattern.compile("(?i)\\b(128|256|512|1024)\\s*(?:gb|g)?\\b|\\b(1|2)\\s*tb\\b");
-    private static final Pattern COLOR_PATTERN = Pattern.compile("(?i)\\b(black|blk|silver|white|grey|gray|titanium|blue|gold|green|purple)\\b");
+    private static final Pattern COLOR_PATTERN = Pattern.compile("(?i)\\b(black|blk|silver|white|grey|gray|titanium|blue|gold|green|purple)\\s*(?:colour|color)?\\b");
 
     @Override
     public ProductExtractionResult extract(String customerText, String correlationId) {
@@ -57,7 +58,7 @@ public class RuleBasedAiExtractor implements AiExtractor {
 
         var colorMatcher = COLOR_PATTERN.matcher(lower);
         if (colorMatcher.find()) {
-            String c = colorMatcher.group().toLowerCase(Locale.ROOT);
+            String c = colorMatcher.group(1).toLowerCase(Locale.ROOT);
             String normalizedColor = switch (c) {
                 case "blk", "black" -> "Black";
                 case "silver" -> "Silver";
@@ -90,6 +91,16 @@ public class RuleBasedAiExtractor implements AiExtractor {
             model = "Galaxy S25";
             productPhrase = "Galaxy S25";
             confidence = (attributes.containsKey("storage") && attributes.containsKey("color")) ? 0.92 : 0.85;
+        } else if (lower.contains("iphone 16 pro") || lower.contains("iphone 16pro") || lower.contains("16 pro")) {
+            brand = "Apple";
+            model = "iPhone 16 Pro";
+            productPhrase = "iPhone 16 Pro";
+            confidence = (attributes.containsKey("storage") && attributes.containsKey("color")) ? 0.94 : 0.88;
+        } else if (lower.contains("iphone 16") || lower.contains("iphone16")) {
+            brand = "Apple";
+            model = "iPhone 16";
+            productPhrase = "iPhone 16";
+            confidence = (attributes.containsKey("storage") && attributes.containsKey("color")) ? 0.92 : 0.85;
         } else if (lower.contains("iphone 17 pro") || lower.contains("iphone 17pro") || lower.contains("17 pro")) {
             brand = "Apple";
             model = "iPhone 17 Pro";
@@ -100,7 +111,7 @@ public class RuleBasedAiExtractor implements AiExtractor {
             model = "iPhone 17";
             productPhrase = "iPhone 17";
             confidence = (attributes.containsKey("storage") && attributes.containsKey("color")) ? 0.92 : 0.85;
-        } else if (lower.contains("samsung")) {
+        } else if (lower.contains("samsung") || lower.contains("samsun")) {
             brand = "Samsung";
             confidence = 0.60;
         } else if (lower.contains("iphone") || lower.contains("apple")) {
@@ -118,9 +129,14 @@ public class RuleBasedAiExtractor implements AiExtractor {
                         System.currentTimeMillis() - start
                 );
             }
-            return ProductExtractionResult.unknown(
-                    "I could not identify the product you are asking about. Please provide the model name or SKU.", "rule-based"
-            );
+            String prompt = PRICE_PATTERN.matcher(lower).find()
+                    ? TanglishSupport.priceUnsupported()
+                    : TanglishSupport.isTanglish(raw)
+                    ? TanglishSupport.clarification(false)
+                    : "I could not identify the product you are asking about. Please provide the model name or SKU.";
+            AiIntent intent = WAITLIST_PATTERN.matcher(lower).find() ? AiIntent.JOIN_WAITLIST : AiIntent.UNKNOWN;
+            return new ProductExtractionResult(intent, "", brand, "", attributes, 0.0, true,
+                    prompt, "rule-based", System.currentTimeMillis() - start);
         }
 
         // 6. Intent classification

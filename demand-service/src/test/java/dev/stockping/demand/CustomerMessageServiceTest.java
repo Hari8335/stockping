@@ -156,6 +156,92 @@ class CustomerMessageServiceTest {
     }
 
     @Test
+    void tanglishAmbiguousInquiryAsksForVariantWithoutConsent() {
+        CustomerMessageService aiService = createAiEnabledService();
+        var msg = message("Samsun S25 ultra iruka?");
+        UUID productId = UUID.randomUUID();
+        var c1 = new MessageCatalogClient.SearchCandidate(UUID.randomUUID(), productId, "S25U-256",
+                "Samsung Galaxy S25 Ultra 256GB", "Samsung", Map.of("storage", "256GB"));
+        var c2 = new MessageCatalogClient.SearchCandidate(UUID.randomUUID(), productId, "S25U-512",
+                "Samsung Galaxy S25 Ultra 512GB", "Samsung", Map.of("storage", "512GB"));
+        when(catalog.search(eq(merchant), eq("Galaxy S25 Ultra"), eq("Samsung"), isNull(), anyMap(), eq(msg.correlationId())))
+                .thenReturn(new MessageCatalogClient.SearchOutcome(ResolutionStatus.AMBIGUOUS, List.of(c1, c2), 2));
+
+        var reply = aiService.process(msg);
+        assertEquals("STOCK_AMBIGUOUS", reply.purpose());
+        assertTrue(reply.text().contains("Color or storage sollunga"));
+        verifyNoInteractions(consent, waitlists, customers);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Do you have Samsung S25 Ultra?", "machan S25 Ultra thiyenawada?"})
+    void englishAndSinglishAmbiguousInquiryAsksForVariantWithoutConsent(String text) {
+        CustomerMessageService aiService = createAiEnabledService();
+        var msg = message(text);
+        UUID productId = UUID.randomUUID();
+        var c1 = new MessageCatalogClient.SearchCandidate(UUID.randomUUID(), productId, "S25U-256",
+                "Samsung Galaxy S25 Ultra", "Samsung", Map.of("storage", "256GB"));
+        var c2 = new MessageCatalogClient.SearchCandidate(UUID.randomUUID(), productId, "S25U-512",
+                "Samsung Galaxy S25 Ultra", "Samsung", Map.of("storage", "512GB"));
+        when(catalog.search(eq(merchant), eq("Galaxy S25 Ultra"), eq("Samsung"), isNull(), anyMap(), eq(msg.correlationId())))
+                .thenReturn(new MessageCatalogClient.SearchOutcome(ResolutionStatus.AMBIGUOUS, List.of(c1, c2), 2));
+
+        var reply = aiService.process(msg);
+
+        assertEquals("STOCK_AMBIGUOUS", reply.purpose());
+        assertTrue(reply.text().contains("multiple options"));
+        verifyNoInteractions(consent, waitlists, customers);
+    }
+
+    @Test
+    void suppliedPartialAttributeDoesNotFallBackToAnotherVariant() {
+        CustomerMessageService aiService = createAiEnabledService();
+        var msg = message("Do you have S25 Ultra black?");
+        when(catalog.search(any(), any(), any(), any(), anyMap(), anyString()))
+                .thenReturn(new MessageCatalogClient.SearchOutcome(ResolutionStatus.NOT_FOUND, List.of(), 0));
+
+        var reply = aiService.process(msg);
+
+        assertEquals("STOCK_NOT_FOUND", reply.purpose());
+        verify(catalog, times(2)).search(any(), any(), any(), any(), anyMap(), anyString());
+    }
+
+    @Test
+    void tanglishAvailableReplyUsesCatalogInventoryWithoutConsent() {
+        CustomerMessageService aiService = createAiEnabledService();
+        var msg = message("Samsung S25 Ultra black 512GB irukka?");
+        UUID variantId = UUID.randomUUID();
+        var candidate = new MessageCatalogClient.SearchCandidate(variantId, UUID.randomUUID(), "S25U-512-BLK",
+                "Samsung Galaxy S25 Ultra", "Samsung", Map.of("storage", "512GB", "color", "Black"));
+        when(catalog.search(eq(merchant), eq("Galaxy S25 Ultra"), eq("Samsung"), isNull(), anyMap(), eq(msg.correlationId())))
+                .thenReturn(new MessageCatalogClient.SearchOutcome(ResolutionStatus.MATCHED, List.of(candidate), 1));
+        when(catalog.getInventory(merchant, variantId, msg.correlationId()))
+                .thenReturn(new MessageCatalogClient.VariantInventory(variantId, 3, true));
+
+        var reply = aiService.process(msg);
+        assertEquals("STOCK_AVAILABLE", reply.purpose());
+        assertTrue(reply.text().contains("ippo stock-la irukku"));
+        verify(catalog).getInventory(merchant, variantId, msg.correlationId());
+        verifyNoInteractions(consent, waitlists, customers);
+    }
+
+    @Test
+    void deterministicTanglishWorksWhenAiIsDisabled() {
+        AiProperties props = new AiProperties();
+        props.setEnabled(false);
+        props.setProvider("gemini");
+        var aiService = new CustomerMessageService(merchants, customers, consent, catalog, waitlists, audits,
+                new RuleBasedAiExtractor(), props);
+        var msg = message("iPhone 16 stock iruka?");
+        when(catalog.search(any(), any(), any(), any(), anyMap(), anyString()))
+                .thenReturn(new MessageCatalogClient.SearchOutcome(ResolutionStatus.NOT_FOUND, List.of(), 0));
+        var reply = aiService.process(msg);
+        assertEquals("STOCK_NOT_FOUND", reply.purpose());
+        assertTrue(reply.text().contains("catalog-la kidaikkala"));
+        verifyNoInteractions(consent, waitlists, customers);
+    }
+
+    @Test
     void scenarioA_replyYesAfterOutOfStockJoinsWaitlist() {
         CustomerMessageService aiService = createAiEnabledService();
         var queryMsg = message("Do you have S25 Ultra 512 black?");
