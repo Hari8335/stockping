@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """Verify a running Compose skeleton without third-party Python dependencies."""
 
