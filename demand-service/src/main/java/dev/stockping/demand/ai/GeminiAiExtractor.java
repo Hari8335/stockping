@@ -50,6 +50,9 @@ public class GeminiAiExtractor implements AiExtractor {
             String prompt = """
                     You are StockPing's customer inquiry extractor for retail electronics.
                     Extract structured product details from customer WhatsApp messages.
+                    Customer messages may use Tanglish (Romanized Tamil mixed with English), such as
+                    "iruka", "irukka", "irukaa", "available ah", or "stock vandha sollunga".
+                    Normalize obvious catalog-supported misspellings such as "Samsun" to "Samsung".
                     Classify intent into one of: CHECK_STOCK, JOIN_WAITLIST, OPT_OUT, HELP, UNKNOWN.
                     Extract brand, model, productPhrase, attributes (e.g. storage, color), and confidence score (0.0 to 1.0).
                     If the inquiry is too vague or lacks model details, set needsClarification=true and provide clarificationPrompt.

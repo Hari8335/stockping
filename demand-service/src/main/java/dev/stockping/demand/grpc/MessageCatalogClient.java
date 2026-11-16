@@ -15,7 +15,15 @@ public class MessageCatalogClient {
     public record Stock(String name, boolean available) {}
     public record NotificationStock(String productId, String name, String sku, String description, boolean available) {}
     public record SearchCandidate(UUID variantId, UUID productId, String sku, String productName, String brand, Map<String, String> attributes) {}
-    public record SearchOutcome(ResolutionStatus status, List<SearchCandidate> candidates, long totalMatches) {}
+    public record SearchOutcome(ResolutionStatus status, List<SearchCandidate> candidates, long totalMatches) {
+        public boolean isAmbiguous() {
+            return status == ResolutionStatus.AMBIGUOUS || totalMatches > 1;
+        }
+
+        public boolean isSingleMatch() {
+            return status == ResolutionStatus.MATCHED && totalMatches == 1 && candidates.size() == 1;
+        }
+    }
     public record VariantInventory(UUID variantId, int quantity, boolean available) {}
     private final ManagedChannel channel;
     private final String token;

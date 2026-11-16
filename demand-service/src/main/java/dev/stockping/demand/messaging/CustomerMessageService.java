@@ -112,7 +112,7 @@ public class CustomerMessageService {
         }
 
         // 3. Constrained natural-language extraction (Stage 5 AI)
-        if (aiExtractor != null && (aiProperties.isEnabled() || "mock".equalsIgnoreCase(aiProperties.getProvider()))) {
+        if (aiExtractor != null) {
             try {
                 ProductExtractionResult extraction = aiExtractor.extract(text, message.correlationId());
                 Reply aiReply = handleAiExtraction(message, extraction);
@@ -148,7 +148,10 @@ public class CustomerMessageService {
         }
         try {
             var outcome = catalog.search(merchant, null, null, sku, Map.of(), correlation);
-            if (outcome.candidates().isEmpty()) {
+            if (!outcome.isSingleMatch()) {
+                if (outcome.isAmbiguous()) {
+                    return new Reply(true, "Please specify the exact SKU for the waitlist.", "WAITLIST_AMBIGUOUS");
+                }
                 return new Reply(true, "That SKU was not found in our catalog. Check the SKU and try again.", "WAITLIST_NOT_FOUND");
             }
             var candidate = outcome.candidates().get(0);
@@ -189,6 +192,8 @@ public class CustomerMessageService {
                 || extraction.intent() == AiIntent.UNKNOWN) {
             String prompt = (extraction.clarificationPrompt() != null && !extraction.clarificationPrompt().isBlank())
                     ? extraction.clarificationPrompt()
+                    : TanglishSupport.isTanglish(message.text())
+                    ? TanglishSupport.clarification(!extraction.attributes().isEmpty())
                     : "I could not identify the product you are asking about. " + HELP;
             return new Reply(true, prompt, "CLARIFICATION");
         }
@@ -214,37 +219,47 @@ public class CustomerMessageService {
                 search = catalog.search(message.merchant(), extraction.productPhrase(), extraction.brand(), null, extraction.attributes(), message.correlationId());
             }
 
-            // 3. If still no candidates, try without attributes (in case attributes slightly differed)
-            if (search.candidates().isEmpty() && !extraction.attributes().isEmpty()) {
-                search = catalog.search(message.merchant(), nameToSearch, extraction.brand(), null, Map.of(), message.correlationId());
-            }
-
             // Case A: NOT FOUND
-            if (search.candidates().isEmpty()) {
+            if (search.totalMatches() == 0) {
                 String searchLabel = !nameToSearch.isBlank() ? nameToSearch : "that product";
-                return new Reply(true, "We couldn't find a matching product in our catalog for '" + searchLabel + "'. Check the SKU or model name and try again.", "STOCK_NOT_FOUND");
+                String reply = TanglishSupport.isTanglish(message.text())
+                        ? TanglishSupport.notFound(searchLabel)
+                        : "We couldn't find a matching product in our catalog for '" + searchLabel + "'. Check the SKU or model name and try again.";
+                return new Reply(true, reply, "STOCK_NOT_FOUND");
             }
 
             // Case B: AMBIGUOUS (> 1 candidate)
-            if (search.candidates().size() > 1) {
+            if (search.isAmbiguous()) {
                 String options = search.candidates().stream().limit(3)
                         .map(c -> c.productName() + " (" + c.sku() + (c.attributes().isEmpty() ? "" : ", " + formatAttrs(c.attributes())) + ")")
                         .collect(Collectors.joining("; "));
-                return new Reply(true, "We found multiple options: " + options + ". Please specify the exact model, storage, or color, or send STOCK <SKU>.", "STOCK_AMBIGUOUS");
+                String reply = TanglishSupport.isTanglish(message.text())
+                        ? TanglishSupport.ambiguous(options)
+                        : "We found multiple options: " + options + ". Please specify the exact model, storage, or color, or send STOCK <SKU>.";
+                return new Reply(true, reply, "STOCK_AMBIGUOUS");
             }
 
             // Case C: MATCHED (exactly 1 candidate)
+            if (!search.isSingleMatch()) {
+                return new Reply(true, "I cannot verify stock right now. Please try again later.", "STOCK_UNAVAILABLE");
+            }
             var candidate = search.candidates().get(0);
             var inventory = catalog.getInventory(message.merchant(), candidate.variantId(), message.correlationId());
 
             if (inventory.available()) {
-                return new Reply(true, candidate.productName() + " (" + candidate.sku() + ") is currently available.", "STOCK_AVAILABLE");
+                String reply = TanglishSupport.isTanglish(message.text())
+                        ? TanglishSupport.available(candidate.productName(), candidate.sku())
+                        : candidate.productName() + " (" + candidate.sku() + ") is currently available.";
+                return new Reply(true, reply, "STOCK_AVAILABLE");
             } else {
                 rememberQuery(message.merchant(), message.phone(), candidate.sku(), candidate.variantId(), candidate.productName());
                 if (extraction.intent() == AiIntent.JOIN_WAITLIST) {
                     return joinWaitlistBySku(message.merchant(), message.phone(), message.displayName(), candidate.sku(), message.correlationId());
                 }
-                return new Reply(true, candidate.productName() + " (" + candidate.sku() + ") is currently out of stock. Would you like to be notified when it arrives? Reply YES or send WAITLIST " + candidate.sku() + " to join the waitlist.", "STOCK_WAITLIST_OFFER");
+                String reply = TanglishSupport.isTanglish(message.text())
+                        ? TanglishSupport.outOfStock(candidate.productName(), candidate.sku())
+                        : candidate.productName() + " (" + candidate.sku() + ") is currently out of stock. Would you like to be notified when it arrives? Reply YES or send WAITLIST " + candidate.sku() + " to join the waitlist.";
+                return new Reply(true, reply, "STOCK_WAITLIST_OFFER");
             }
 
         } catch (DemandException e) {
