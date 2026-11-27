@@ -34,6 +34,7 @@ public class AiController {
         long start = System.currentTimeMillis();
         ProductExtractionResult extraction = aiExtractor.extract(request.query(), correlationId);
         long latency = System.currentTimeMillis() - start;
+        boolean tanglish = TanglishSupport.isTanglish(request.query());
 
         ExtractedDetails details = new ExtractedDetails(
                 extraction.productPhrase(),
@@ -64,6 +65,7 @@ public class AiController {
                 || extraction.intent() == AiIntent.UNKNOWN) {
             String prompt = (extraction.clarificationPrompt() != null && !extraction.clarificationPrompt().isBlank())
                     ? extraction.clarificationPrompt()
+                    : tanglish ? TanglishSupport.clarification(!extraction.attributes().isEmpty())
                     : "I could not identify the product you are asking about. Please provide the model name or SKU.";
             return new AiQueryResponse(
                     request.query(), extraction.intent(), extraction.confidence(), true, prompt,
@@ -81,32 +83,34 @@ public class AiController {
                 && !extraction.productPhrase().equalsIgnoreCase(nameToSearch)) {
             search = catalog.search(merchantId, extraction.productPhrase(), extraction.brand(), null, extraction.attributes(), correlationId);
         }
-        if (search.candidates().isEmpty() && !extraction.attributes().isEmpty()) {
-            search = catalog.search(merchantId, nameToSearch, extraction.brand(), null, Map.of(), correlationId);
-        }
-
-        if (search.candidates().isEmpty()) {
+        if (search.totalMatches() == 0) {
             return new AiQueryResponse(
                     request.query(), extraction.intent(), extraction.confidence(), false, "",
                     details, "NOT_FOUND", null,
-                    "We couldn't find a matching product in our catalog for '" + nameToSearch + "'. Check the SKU or model name and try again.",
+                    tanglish ? TanglishSupport.notFound(nameToSearch)
+                    : "We couldn't find a matching product in our catalog for '" + nameToSearch + "'. Check the SKU or model name and try again.",
                     "STOCK_NOT_FOUND", DISCLAIMER, extraction.providerModel(), latency
             );
         }
 
-        if (search.candidates().size() > 1) {
+        if (search.isAmbiguous()) {
             String options = search.candidates().stream().limit(3)
                     .map(c -> c.productName() + " (" + c.sku() + ")")
                     .collect(Collectors.joining("; "));
             return new AiQueryResponse(
                     request.query(), extraction.intent(), extraction.confidence(), true,
-                    "We found multiple options: " + options + ". Please specify the exact storage or color.",
+                    tanglish ? TanglishSupport.ambiguous(options)
+                    : "We found multiple options: " + options + ". Please specify the exact storage or color.",
                     details, "AMBIGUOUS", null,
-                    "We found multiple options: " + options + ". Please specify the exact storage or color.",
+                    tanglish ? TanglishSupport.ambiguous(options)
+                    : "We found multiple options: " + options + ". Please specify the exact storage or color.",
                     "STOCK_AMBIGUOUS", DISCLAIMER, extraction.providerModel(), latency
             );
         }
 
+        if (!search.isSingleMatch()) {
+            throw new IllegalStateException("Catalog returned an invalid single-match response");
+        }
         var candidate = search.candidates().get(0);
         var inventory = catalog.getInventory(merchantId, candidate.variantId(), correlationId);
 
@@ -123,10 +127,12 @@ public class AiController {
         String reply;
         String purpose;
         if (inventory.available()) {
-            reply = candidate.productName() + " (" + candidate.sku() + ") is currently available.";
+            reply = tanglish ? TanglishSupport.available(candidate.productName(), candidate.sku())
+                    : candidate.productName() + " (" + candidate.sku() + ") is currently available.";
             purpose = "STOCK_AVAILABLE";
         } else {
-            reply = candidate.productName() + " (" + candidate.sku() + ") is currently out of stock. Would you like to be notified when it arrives? Reply YES or send WAITLIST " + candidate.sku() + " to join the waitlist.";
+            reply = tanglish ? TanglishSupport.outOfStock(candidate.productName(), candidate.sku())
+                    : candidate.productName() + " (" + candidate.sku() + ") is currently out of stock. Would you like to be notified when it arrives? Reply YES or send WAITLIST " + candidate.sku() + " to join the waitlist.";
             purpose = "STOCK_WAITLIST_OFFER";
         }
 
