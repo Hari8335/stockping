@@ -141,16 +141,30 @@ The Go command builds a tool image with protoc 4.36.2, protoc-gen-go 1.36.12 and
 # All Java, frontend and Go tests/builds (Docker is required for PostgreSQL tests and Go).
 ./scripts/test.sh
 
-# Infrastructure/HTTP checks against the running Compose environment.
+# Read-only infrastructure/HTTP checks against the running developer Compose environment.
 python3 scripts/smoke-test.py
+
+# Acceptance validators. Each runs in its own disposable Compose project (see below) and never
+# touches the developer databases, RabbitMQ queues, images or root .env.
 python3 scripts/validate-catalog.py
 python3 scripts/validate-demand.py
 python3 scripts/validate-messaging.py
-# Isolated Compose project, synthetic credentials, disposable volumes and fake provider only.
 python3 scripts/validate-stage4.py
 # Stage 5 AI query extraction and end-to-end WhatsApp Scenario A acceptance.
 python3 scripts/validate-stage5.py
+
+# Remove leftovers of an interrupted validation run. Only harness-generated stockping-validation-<name>-<run>
+# projects match; projects with running containers are skipped unless --include-running is given.
+python3 scripts/validation_support.py --cleanup
 ```
+
+Validation isolation (`scripts/validation_support.py`, `IsolatedStack`):
+
+- A unique `stockping-validation-<name>-<run>` Compose project with per-run synthetic credentials in a private `--env-file`; the root `.env` is never read and the process environment is scrubbed, so exported shell variables cannot leak in. The resolved configuration is asserted before anything starts.
+- Images are built from the working tree as `stockping-validation-*:local` (cached layers are reused; set `STOCKPING_VALIDATION_SKIP_BUILD=1` to reuse existing ones). Developer `stockping-*` images are untouched.
+- WhatsApp always targets the fake provider on the private network with real sending disabled and an empty allowlist. Customers use controlled synthetic numbers `+1999xxxxxxx` (an unassigned NANP area code); the fake provider rejects any other recipient and the run fails.
+- The demo administrator and any second tenant get random per-run passwords; no credential or hash is shared with the developer stack. The AI provider is forced to `mock`.
+- Teardown removes only the project's containers, network and volumes, so repeated runs leave nothing behind. `STOCKPING_VALIDATION_KEEP=1` keeps a failed stack for inspection.
 
 Go tests include configuration validation, actual HTTP health/error requests, and generated contract compatibility; the runner also checks formatting, `go vet`, the race detector and compilation. Java integration tests use disposable PostgreSQL 18 and real HTTP/gRPC servers. They test CRUD, inventory transitions/audits, concurrency/rollback, validation, tenant isolation and the preserved health/configuration boundaries. Frontend tests cover login/logout, dashboard loading, product and inventory workflows, waitlist states and consent, notification dispatch-state presentation, AI preview, filtering, and session expiry. The Compose test checks all application boundaries, three owned PostgreSQL connections, all six denied cross-service database connections, and authenticated RabbitMQ management access.
 

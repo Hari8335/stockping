@@ -28,7 +28,7 @@ func run() error {
 	}
 	defer conn.Close()
 	client := demandv1.NewDemandServiceClient(conn)
-	request := &demandv1.ProcessCustomerMessageRequest{MerchantId: os.Getenv("CHECK_MERCHANT_ID"), CustomerPhone: "+94770000000", ProviderMessageId: "synthetic.grpc.check", MessageText: "HELP", ReceivedAt: time.Now().UTC().Format(time.RFC3339), CorrelationId: uuid.NewString()}
+	request := &demandv1.ProcessCustomerMessageRequest{MerchantId: os.Getenv("CHECK_MERCHANT_ID"), CustomerPhone: "+19990000000", ProviderMessageId: "synthetic.grpc.check", MessageText: "HELP", ReceivedAt: time.Now().UTC().Format(time.RFC3339), CorrelationId: uuid.NewString()}
 	call := func(token string, timeout time.Duration) (*demandv1.ProcessCustomerMessageResponse, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
