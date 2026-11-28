@@ -138,7 +138,7 @@ python3 scripts/validate-demand.py
 python3 scripts/validate-messaging.py
 ```
 
-Stage 4 acceptance uses prebuilt `stockping-*-service:latest` images. It creates a unique `stockping-stage4-<random>` Compose project, unique loopback ports, synthetic credentials, a fake provider and fresh PostgreSQL/RabbitMQ volumes. The normal project's `.env`, services and data remain untouched. A `finally` block deletes only the generated test project/volumes and fake container. Assertions use bounded polling. Failure diagnostics are saved privately under the host temporary directory. No live Meta access token is needed.
+Stage 4 acceptance runs on the shared `IsolatedStack` harness (`scripts/validation_support.py`). It builds the working tree as `stockping-validation-*:local` images and creates a unique `stockping-validation-stage4-<run>` Compose project, unique loopback ports, synthetic credentials and `+1999…` phones, a fake provider that rejects non-synthetic recipients, and fresh PostgreSQL/RabbitMQ volumes. The root `.env` and inherited shell credentials are never used; the normal project's services, images and data remain untouched. Teardown deletes only the generated project's containers, network and volumes and the fake container. Assertions use bounded polling. Failure diagnostics are saved privately under the host temporary directory. No live Meta access token is needed.
 
 ## Observed results and acceptance
 

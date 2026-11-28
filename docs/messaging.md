@@ -111,10 +111,10 @@ Only placeholders appear in `.env.example`. Do not log resolved Compose config, 
 ./scripts/generate-proto.sh
 ./scripts/test.sh                     # includes real disposable PostgreSQL tests
 ./scripts/test-messaging-db.sh         # standalone database/webhook integration
-python3 scripts/validate-messaging.py  # running Compose, fake provider, real Go/Java
+python3 scripts/validate-messaging.py  # isolated disposable Compose project, fake provider, real Go/Java
 ```
 
-The validator requires demo login, temporarily overrides Messaging, creates a fake-provider container, exercises real generated Go → Java RPCs and service outages, and restores base Compose configuration in `finally`. Synthetic evidence rows remain. CI needs no live Meta credentials. There are no test-only RPC branches in Java.
+The validator runs in its own disposable Compose project (`IsolatedStack` in `scripts/validation_support.py`) with synthetic credentials, a fake-provider container that only accepts synthetic `+1999…` recipients, real generated Go → Java RPCs and service outages. The developer stack is never touched and no evidence rows remain after teardown. CI needs no live Meta credentials. There are no test-only RPC branches in Java.
 
 ## Real WhatsApp acceptance procedure
 

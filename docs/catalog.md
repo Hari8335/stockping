@@ -80,7 +80,7 @@ The generated-code Java integration client and [Go validation client](../scripts
 
 ```sh
 ./scripts/generate-proto.sh
-# Creates fresh demo data with REST, checks zero -> five, and runs both RPCs from Go.
+# Isolated disposable stack: creates data with REST, checks zero -> five, runs both RPCs from Go, then tears down.
 python3 scripts/validate-catalog.py
 
 # Set STOCKPING_TOKEN to a valid access token before using this validation client.
